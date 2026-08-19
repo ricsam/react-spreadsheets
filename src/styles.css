@@ -1,0 +1,483 @@
+/**
+ * @ricsam/react-spreadsheets — base stylesheet
+ *
+ * Import once in your app:
+ *   import "@ricsam/react-spreadsheets/styles.css";
+ *
+ * Everything is themed through CSS custom properties declared on `.rsp-root`,
+ * so you can restyle the whole grid without overriding individual rules:
+ *
+ *   .rsp-root { --rsp-accent: #7c3aed; --rsp-cell-font-size: 13px; }
+ *
+ * Light/dark are handled automatically via `light-dark()` and `color-scheme`.
+ * Force one mode by setting `color-scheme: light` (or `dark`) on `.rsp-root`.
+ */
+
+.rsp-root {
+  color-scheme: light dark;
+
+  /* Surfaces */
+  --rsp-bg: light-dark(#ffffff, #111827);
+  --rsp-header-bg: light-dark(#f8f9fa, #374151);
+  --rsp-corner-bg: light-dark(#e0e0e0, #4b5563);
+  --rsp-editor-bg: light-dark(#ffffff, #1f2937);
+
+  /* Lines */
+  --rsp-border: light-dark(#e1e5e9, #4b5563);
+  --rsp-corner-border: light-dark(#d0d0d0, #374151);
+  --rsp-gridline: light-dark(#e1e5e9, #4b5563);
+
+  /* Text */
+  --rsp-text: light-dark(#000000, #f9fafb);
+  --rsp-header-text: light-dark(#374151, #d1d5db);
+  --rsp-muted-text: light-dark(#6b7280, #9ca3af);
+
+  /* Accent / selection */
+  --rsp-accent: light-dark(#2196f3, #60a5fa);
+  --rsp-accent-contrast: #ffffff;
+  --rsp-selection-bg: light-dark(#e3f2fd, #1e3a5f);
+  --rsp-selection-range-bg: light-dark(#e8f4fd, #1e3a5f);
+  --rsp-hover-bg: light-dark(#f8f9fa, #374151);
+  --rsp-focus-ring: light-dark(rgba(33, 150, 243, 0.2), rgba(96, 165, 250, 0.2));
+
+  /* Danger (delete buttons, invalid input) */
+  --rsp-danger: light-dark(#dc2626, #f87171);
+  --rsp-danger-bg: light-dark(#fef2f2, #7f1d1d);
+
+  /* Typography */
+  --rsp-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --rsp-mono-font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+    Consolas, "Liberation Mono", monospace;
+  --rsp-cell-font-size: 12px;
+  --rsp-header-font-size: 12px;
+
+  /* Shape */
+  --rsp-radius: 6px;
+
+  /* Fill handle */
+  --rsp-fill-handle-size: 8px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Spreadsheet grid
+ * ------------------------------------------------------------------ */
+
+.rsp-container {
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  background: var(--rsp-bg);
+  color: var(--rsp-text);
+  font-family: var(--rsp-font-family);
+}
+
+.rsp-container:focus {
+  outline: none;
+}
+
+.rsp-container.rsp-focused {
+  box-shadow: 0 0 0 2px var(--rsp-accent);
+}
+
+.rsp-canvas,
+.rsp-cells {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.rsp-cell {
+  position: absolute;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 4px;
+  font-size: var(--rsp-cell-font-size);
+  font-family: var(--rsp-font-family);
+  overflow: hidden;
+  white-space: pre;
+  text-overflow: ellipsis;
+  pointer-events: auto;
+  cursor: cell;
+  display: flex;
+  align-items: center;
+  color: var(--rsp-text);
+  box-sizing: border-box;
+}
+
+.rsp-cell.rsp-cell-multiline {
+  align-items: flex-start;
+}
+
+.rsp-cell:hover {
+  background: var(--rsp-hover-bg);
+}
+
+.rsp-cell.rsp-cell-selected {
+  border-color: var(--rsp-accent);
+}
+
+/* `rsp-cell-plain` marks cells whose background is not overridden by a
+   consumer-supplied custom style, so selection tinting is safe to apply. */
+.rsp-cell.rsp-cell-selected.rsp-cell-plain {
+  background: var(--rsp-selection-bg);
+}
+
+.rsp-cell.rsp-cell-in-selection.rsp-cell-plain {
+  background: var(--rsp-selection-range-bg);
+}
+
+.rsp-cell.rsp-cell-editing {
+  background: var(--rsp-editor-bg);
+  border: 2px solid var(--rsp-accent);
+  box-shadow: 0 0 0 2px var(--rsp-focus-ring);
+  z-index: 999;
+  pointer-events: none;
+}
+
+.rsp-cell-editor {
+  position: fixed;
+  width: 100vw;
+  height: 100vh;
+  border: none;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  font-size: var(--rsp-cell-font-size);
+  font-family: var(--rsp-font-family);
+  background: transparent;
+  color: var(--rsp-text);
+  resize: none;
+  overflow: hidden;
+  z-index: 1000;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.rsp-fill-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: var(--rsp-fill-handle-size);
+  height: var(--rsp-fill-handle-size);
+  background-color: var(--rsp-accent);
+  cursor: crosshair;
+}
+
+/* Headers ---------------------------------------------------------- */
+
+.rsp-header {
+  position: absolute;
+  border: 1px solid var(--rsp-border);
+  background-color: var(--rsp-header-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--rsp-header-font-size);
+  cursor: pointer;
+  user-select: none;
+  color: var(--rsp-header-text);
+  box-sizing: border-box;
+}
+
+.rsp-header.rsp-header-selected {
+  background-color: var(--rsp-selection-bg);
+}
+
+.rsp-column-headers,
+.rsp-row-headers {
+  position: absolute;
+  overflow: hidden;
+  background-color: var(--rsp-header-bg);
+  z-index: 1;
+}
+
+.rsp-column-headers {
+  top: 0;
+  border-bottom: 1px solid var(--rsp-border);
+}
+
+.rsp-row-headers {
+  border-right: 1px solid var(--rsp-border);
+}
+
+.rsp-corner-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background-color: var(--rsp-corner-bg);
+  border: 1px solid var(--rsp-corner-border);
+  z-index: 20;
+}
+
+.rsp-col-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.rsp-row-resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 5px;
+  cursor: row-resize;
+  z-index: 10;
+}
+
+/* Overlays --------------------------------------------------------- */
+
+.rsp-overlays {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.rsp-overlays > * {
+  pointer-events: auto;
+}
+
+.rsp-overlay-placeholder {
+  position: absolute;
+  opacity: 0.5;
+  pointer-events: none;
+  border: 2px dashed var(--rsp-accent);
+  border-radius: 4px;
+  background-color: var(--rsp-focus-ring);
+}
+
+.rsp-overlay-placeholder-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--rsp-accent);
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * Workbook chrome (sheet tabs, toolbar)
+ * ------------------------------------------------------------------ */
+
+.rsp-workbook {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: var(--rsp-bg);
+  color: var(--rsp-text);
+  font-family: var(--rsp-font-family);
+}
+
+.rsp-workbook-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--rsp-border);
+  background: var(--rsp-header-bg);
+  flex: none;
+}
+
+.rsp-workbook-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--rsp-header-text);
+  white-space: nowrap;
+}
+
+.rsp-workbook-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.rsp-sheet-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--rsp-border);
+  background: var(--rsp-header-bg);
+  flex: none;
+}
+
+.rsp-sheet-tabs-scroll {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.rsp-sheet-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--rsp-radius);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--rsp-header-text);
+  background: transparent;
+}
+
+.rsp-sheet-tab:hover {
+  background: var(--rsp-hover-bg);
+}
+
+.rsp-sheet-tab.rsp-sheet-tab-active {
+  background: var(--rsp-bg);
+  border-color: var(--rsp-border);
+  color: var(--rsp-text);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--rsp-accent);
+}
+
+/* Per-tab action buttons reveal on hover / when the tab is active. */
+.rsp-sheet-tab .sheet-tab-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.rsp-sheet-tab:hover .sheet-tab-actions,
+.rsp-sheet-tab.rsp-sheet-tab-active .sheet-tab-actions,
+.rsp-sheet-tab:focus-within .sheet-tab-actions {
+  opacity: 1;
+}
+
+.rsp-sheet-tab-input {
+  font: inherit;
+  color: inherit;
+  background: var(--rsp-editor-bg);
+  border: 1px solid var(--rsp-accent);
+  border-radius: 4px;
+  padding: 1px 4px;
+  min-width: 80px;
+}
+
+.rsp-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--rsp-muted-text);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.rsp-icon-button:hover {
+  background: var(--rsp-hover-bg);
+  color: var(--rsp-text);
+}
+
+.rsp-icon-button.rsp-icon-button-delete:hover {
+  background: var(--rsp-danger-bg);
+  color: var(--rsp-danger);
+}
+
+.rsp-add-sheet-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px dashed var(--rsp-border);
+  border-radius: var(--rsp-radius);
+  background: transparent;
+  color: var(--rsp-header-text);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rsp-add-sheet-button:hover {
+  border-color: var(--rsp-accent);
+  color: var(--rsp-accent);
+}
+
+.rsp-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  padding-left: 8px;
+}
+
+.rsp-zoom-value {
+  min-width: 44px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--rsp-muted-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Formula bar ------------------------------------------------------ */
+
+.rsp-formula-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--rsp-border);
+  background: var(--rsp-bg);
+  flex: none;
+}
+
+.rsp-name-box {
+  min-width: 84px;
+  padding: 3px 8px;
+  border: 1px solid var(--rsp-border);
+  border-radius: 4px;
+  background: var(--rsp-header-bg);
+  font-family: var(--rsp-mono-font-family);
+  font-size: 12px;
+  text-align: center;
+  color: var(--rsp-text);
+}
+
+.rsp-formula-input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--rsp-border);
+  border-radius: 4px;
+  background: var(--rsp-editor-bg);
+  color: var(--rsp-text);
+  font-family: var(--rsp-mono-font-family);
+  font-size: 12px;
+}
+
+.rsp-formula-input:focus {
+  outline: none;
+  border-color: var(--rsp-accent);
+  box-shadow: 0 0 0 2px var(--rsp-focus-ring);
+}
+
+.rsp-formula-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

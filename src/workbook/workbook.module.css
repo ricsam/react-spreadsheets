@@ -1,0 +1,653 @@
+:root {
+  color-scheme: light dark;
+
+  /* CSS variables for table styling (used in inline styles) */
+  --table-header-bg: light-dark(#4472c4, #1e3a8a);
+  --table-header-color: white;
+  --table-header-border: light-dark(#2f5597, #1e40af);
+  --table-even-row-bg: light-dark(#f8f9fa, #1f2937);
+  --table-odd-row-bg: light-dark(white, #111827);
+  --table-border-color: light-dark(#4472c4, #4b5563);
+  --table-border-light: light-dark(#d0d7de, #374151);
+}
+
+.workbookContainer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border: 1px solid light-dark(#d1d5db, #4b5563);
+  background-color: light-dark(white, #1f2937);
+}
+
+.formulaBar {
+  padding: 8px;
+  background-color: light-dark(white, #1f2937);
+  border-bottom: 1px solid light-dark(#e5e7eb, #374151);
+}
+
+.formulaBarContent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: light-dark(#4b5563, #d1d5db);
+}
+
+.formulaBarLabel {
+  font-weight: 500;
+}
+
+.nameBox {
+  padding: 4px 8px;
+  border: 1px solid light-dark(#d1d5db, #4b5563);
+  border-radius: 4px;
+  background-color: light-dark(#f9fafb, #374151);
+  color: light-dark(#1f2937, #f9fafb);
+  min-width: 80px;
+  text-align: center;
+}
+
+.formulaBarInput {
+  flex: 1;
+  font-family: monospace;
+  padding: 4px 8px;
+  border: 1px solid light-dark(#d1d5db, #4b5563);
+  border-radius: 4px;
+  background-color: light-dark(white, #374151);
+  color: light-dark(#1f2937, #f9fafb);
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  &::placeholder {
+    color: light-dark(#9ca3af, #6b7280);
+  }
+}
+
+.tablePanel {
+  padding: 12px 0;
+  background-color: light-dark(#f9fafb, #1f2937);
+  border-bottom: 1px solid light-dark(#e5e7eb, #374151);
+  height: 72px;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.tablePanelInner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+
+.tableInfoSection {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tableCard {
+  padding: 8px 12px;
+  background-color: light-dark(#eff6ff, #1e3a8a);
+  border: 1px solid light-dark(#bfdbfe, #1e40af);
+  border-radius: 4px;
+}
+
+.tableCardContent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tableCardRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+}
+
+.tableLabel {
+  font-weight: 500;
+  color: light-dark(#1e40af, #93c5fd);
+}
+
+.tableName {
+  color: light-dark(#1d4ed8, #60a5fa);
+  font-family: monospace;
+}
+
+.tableSeparator {
+  color: light-dark(#6b7280, #9ca3af);
+}
+
+.tableRange {
+  color: light-dark(#4b5563, #d1d5db);
+}
+
+.tableColumns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: light-dark(#6b7280, #9ca3af);
+}
+
+.tableColumnsList {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.tableColumnBadge {
+  padding: 2px 4px;
+  background-color: light-dark(#e5e7eb, #4b5563);
+  border-radius: 2px;
+  color: light-dark(#374151, #d1d5db);
+}
+
+.tableMoreText {
+  color: light-dark(#9ca3af, #6b7280);
+}
+
+.noTableText {
+  font-size: 0.875rem;
+  color: light-dark(#6b7280, #9ca3af);
+}
+
+.tableActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.selectionInfo {
+  font-size: 0.875rem;
+  color: light-dark(#4b5563, #d1d5db);
+}
+
+.tableNameInput {
+  width: 128px;
+  height: 32px;
+  font-size: 0.875rem;
+  padding: 4px 8px;
+  border: 1px solid light-dark(#d1d5db, #4b5563);
+  border-radius: 4px;
+  background-color: light-dark(white, #374151);
+  color: light-dark(#1f2937, #f9fafb);
+}
+
+.wbButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 12px;
+  height: 32px;
+  font-size: 0.875rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.wbButtonDefault {
+  background-color: #3b82f6;
+  color: white;
+
+  &:hover:not(:disabled) {
+    background-color: #2563eb;
+  }
+}
+
+.wbButtonDestructive {
+  background-color: #ef4444;
+  color: white;
+
+  &:hover:not(:disabled) {
+    background-color: #dc2626;
+  }
+}
+
+.wbButtonGhost {
+  background-color: transparent;
+  color: light-dark(#6b7280, #9ca3af);
+
+  &:hover:not(:disabled) {
+    background-color: light-dark(#f3f4f6, #374151);
+    color: light-dark(#374151, #d1d5db);
+  }
+}
+
+.wbButtonSm {
+  padding: 2px 8px;
+  height: 24px;
+  font-size: 0.75rem;
+}
+
+.wbInput {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 0.875rem;
+  border: 1px solid light-dark(#d1d5db, #4b5563);
+  border-radius: 4px;
+  background-color: light-dark(white, #374151);
+  color: light-dark(#1f2937, #f9fafb);
+  outline: none;
+  transition: border-color 0.2s;
+
+  &:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  &::placeholder {
+    color: light-dark(#9ca3af, #6b7280);
+  }
+}
+
+.spreadsheetContainer {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* FormulaToolbar styles */
+.formulaToolbar {
+  border-bottom: 1px solid light-dark(#e5e7eb, #374151);
+  background-color: light-dark(#f9fafb, #1f2937);
+  padding: 16px;
+  flex-shrink: 0;
+}
+
+.formulaToolbarContent {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.formulaToolbarForm {
+  background-color: light-dark(white, #111827);
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid light-dark(#e5e7eb, #374151);
+}
+
+.formulaToolbarTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: light-dark(#1f2937, #f9fafb);
+  margin-bottom: 12px;
+}
+
+.formulaToolbarFormGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.formulaToolbarLabel {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: light-dark(#6b7280, #9ca3af);
+  margin-bottom: 4px;
+}
+
+.formulaToolbarSelect {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 0.875rem;
+  border: 1px solid light-dark(#d1d5db, #4b5563);
+  border-radius: 4px;
+  background-color: light-dark(white, #374151);
+  color: light-dark(#1f2937, #f9fafb);
+  outline: none;
+  transition: border-color 0.2s;
+  height: 40px;
+
+  &:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+}
+
+.formulaToolbarFormButton {
+  display: flex;
+  align-items: flex-end;
+
+  & button {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+  }
+}
+
+.formulaToolbarIcon {
+  width: 16px;
+  height: 16px;
+}
+
+.formulaToolbarLists {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.formulaToolbarSection {
+  background-color: light-dark(white, #111827);
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid light-dark(#e5e7eb, #374151);
+}
+
+.formulaToolbarSectionTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: light-dark(#1f2937, #f9fafb);
+  margin-bottom: 12px;
+}
+
+.formulaToolbarList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.formulaToolbarItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px;
+  border-radius: 4px;
+}
+
+.formulaToolbarItemGlobal {
+  background-color: light-dark(#f3f4f6, #374151);
+}
+
+.formulaToolbarItemWorkbook {
+  background-color: light-dark(#dbeafe, #1e3a8a);
+}
+
+.formulaToolbarItemSheet {
+  background-color: light-dark(#dcfce7, #14532d);
+}
+
+.formulaToolbarItemTable {
+  background-color: light-dark(#f3f4f6, #374151);
+}
+
+.formulaToolbarItemContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.formulaToolbarItemHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.formulaToolbarItemName {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: light-dark(#1f2937, #f9fafb);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.formulaToolbarBadge {
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.formulaToolbarBadgeGlobal {
+  background-color: light-dark(#e5e7eb, #4b5563);
+  color: light-dark(#374151, #d1d5db);
+}
+
+.formulaToolbarBadgeWorkbook {
+  background-color: light-dark(#bfdbfe, #1e40af);
+  color: light-dark(#1e40af, #bfdbfe);
+}
+
+.formulaToolbarBadgeSheet {
+  background-color: light-dark(#bbf7d0, #166534);
+  color: light-dark(#166534, #bbf7d0);
+}
+
+.formulaToolbarItemFormula {
+  font-size: 0.75rem;
+  color: light-dark(#6b7280, #9ca3af);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.formulaToolbarItemMeta {
+  font-size: 0.75rem;
+  color: light-dark(#6b7280, #9ca3af);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.formulaToolbarItemRange {
+  font-size: 0.75rem;
+  color: light-dark(#9ca3af, #6b7280);
+}
+
+.formulaToolbarItemActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+.formulaToolbarEmpty {
+  font-size: 0.75rem;
+  color: light-dark(#9ca3af, #6b7280);
+  font-style: italic;
+}
+
+/* FormulaWorkbook specific styles */
+.workbookHeader {
+  height: 32px;
+  background-color: light-dark(#f3f4f6, #374151);
+  border-bottom: 1px solid light-dark(#d1d5db, #4b5563);
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.workbookHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.workbookName {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: light-dark(#374151, #d1d5db);
+  cursor: pointer;
+
+  &:hover {
+    color: light-dark(#111827, #f9fafb);
+  }
+}
+
+.workbookHeaderActions {
+  opacity: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: opacity 0.2s;
+}
+
+.workbookHeader:hover .workbookHeaderActions {
+  opacity: 1;
+}
+
+.workbookSheetCount {
+  font-size: 0.75rem;
+  color: light-dark(#6b7280, #9ca3af);
+}
+
+.workbookRenameInput {
+  font-size: 0.875rem;
+  font-weight: 500;
+  background-color: light-dark(white, #374151);
+  border: 1px solid #3b82f6;
+  border-radius: 4px;
+  padding: 2px 8px;
+  outline: none;
+  flex: 1;
+  color: light-dark(#1f2937, #f9fafb);
+}
+
+.sheetTabsContainer {
+  height: 56px;
+  background-color: light-dark(#f9fafb, #1f2937);
+  border-top: 1px solid light-dark(#e5e7eb, #374151);
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  flex-shrink: 0;
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+}
+
+.sheetTabsWrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sheetTab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+  border-radius: 4px 4px 0 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  background-color: transparent;
+  color: light-dark(#6b7280, #9ca3af);
+  transition: background-color 0.15s;
+
+  &:hover {
+    background-color: light-dark(#f3f4f6, #374151);
+  }
+}
+
+.sheetTabActive {
+  background-color: light-dark(white, #111827);
+  color: light-dark(#3b82f6, #60a5fa);
+  border-bottom-color: light-dark(#3b82f6, #60a5fa);
+  margin-bottom: -1px;
+}
+
+.sheetTabRenameInput {
+  font-size: 0.75rem;
+  width: 80px;
+  outline: none;
+  background-color: transparent;
+  border: none;
+  color: light-dark(#1f2937, #f9fafb);
+}
+
+.sheetTabRenameContainer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background-color: light-dark(white, #374151);
+  border: 1px solid #3b82f6;
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+.sheetTabActions {
+  opacity: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  transition: opacity 0.15s;
+}
+
+.sheetTab:hover .sheetTabActions {
+  opacity: 1;
+}
+
+.iconButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  cursor: pointer;
+  color: light-dark(#6b7280, #9ca3af);
+  transition: color 0.15s;
+  background: none;
+  border: none;
+
+  &:hover {
+    color: light-dark(#3b82f6, #60a5fa);
+  }
+}
+
+.iconButtonDelete:hover {
+  color: #ef4444;
+}
+
+.iconButtonCopy:hover {
+  color: #10b981;
+}
+
+.addSheetButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin-left: 8px;
+  border: 1px solid light-dark(#d1d5db, #4b5563);
+  border-radius: 4px;
+  background-color: transparent;
+  color: light-dark(#6b7280, #9ca3af);
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &:hover {
+    background-color: light-dark(#f3f4f6, #374151);
+    color: light-dark(#374151, #d1d5db);
+  }
+}
