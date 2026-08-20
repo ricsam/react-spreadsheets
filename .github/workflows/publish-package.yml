@@ -34,12 +34,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # npm trusted publishing requires npm 11.5.1+; Node 24 ships a
+          # compatible npm without a fragile global self-update step.
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
-      # Trusted publishing requires a recent npm CLI.
-      - name: Update npm
-        run: npm install -g npm@latest
       - run: npm -v
 
       - name: Publish if version changed
