@@ -26,6 +26,13 @@ const bundle = async (type: "cjs" | "mjs") => {
     packages: "external",
     naming: `[name].${type}`,
     target: "browser",
+    // Library artifacts must use React's stable jsx/jsxs runtime. Bun defaults
+    // to jsxDEV outside production mode, which crashes when a consumer bundles
+    // the library for production because react/jsx-runtime has no jsxDEV.
+    jsx: {
+      runtime: "automatic",
+      development: false,
+    },
   });
 
   result.logs.forEach((log) => console.log(`[${log.level}] ${log.message}`));

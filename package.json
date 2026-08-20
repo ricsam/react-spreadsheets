@@ -18,7 +18,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "bun build-lib.ts",
+    "build": "NODE_ENV=production bun build-lib.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "demo": "bun --hot demo/index.tsx"
