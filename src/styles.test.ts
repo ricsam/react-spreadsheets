@@ -5,13 +5,25 @@ const css = await Bun.file(new URL("./styles.css", import.meta.url)).text();
 /**
  * Guards the light/dark token strategy.
  *
- * `light-dark()` is deliberately NOT used for the themed tokens. Bundlers that
- * target browsers without native support (Vite's Lightning CSS, for example)
- * lower it to switch custom properties that are only emitted in rules which
- * also declare `color-scheme`. Tokens declared once on a shared root then
- * compute to an invalid value like `#ffffff #0f1523`, every themed surface
- * falls back to `transparent`, and the failure only shows up in a production
- * build. The `--rsp-light` / `--rsp-dark` space toggle avoids that entirely.
+ * Two independent failure modes are covered here, both of which shipped as real
+ * bugs at some point:
+ *
+ * 1. `light-dark()` must not be used. Bundlers that target browsers without
+ *    native support (Vite's Lightning CSS, for example) lower it to switch
+ *    custom properties that are only emitted in rules which also declare
+ *    `color-scheme`. Tokens declared once on a shared root then compute to an
+ *    invalid value like `#ffffff #0f1523`, every themed surface falls back to
+ *    `transparent`, and the failure only shows up in a production build.
+ *
+ * 2. The themed values must be declared on `.rsp-root`, not on `:root`. A
+ *    custom property containing `var()` is substituted at the element where it
+ *    is *declared*; only the result inherits. Themed values declared on `:root`
+ *    are therefore resolved with `:root`'s switches, which makes the resolved
+ *    `data-rsp-scheme` pin inert and repaints a light-pinned grid dark on a
+ *    dark-mode device.
+ *
+ * The package reads the public `--rsp-*` names but never declares them, so a
+ * consumer override on any ancestor always wins.
  */
 describe("styles.css light/dark strategy", () => {
   // Comments contain illustrative CSS, so strip them before any structural
@@ -25,6 +37,10 @@ describe("styles.css light/dark strategy", () => {
       selector: match[2]!.trim(),
       body: match[3]!,
     }));
+
+  /** Every `--x: ...` property name declared anywhere in the stylesheet. */
+  const declaredProperties = (): string[] =>
+    [...source.matchAll(/(--[\w-]+)\s*:/g)].map((match) => match[1]!);
 
   test("does not use light-dark() in any declaration", () => {
     const offenders = declarations.filter((line) => line.includes("light-dark("));
@@ -59,27 +75,61 @@ describe("styles.css light/dark strategy", () => {
     expect(withScheme).toEqual([]);
   });
 
-  test("declares the themed tokens only on :root, so ancestor overrides win", () => {
-    // Repeating the token block on `.rsp-root` would make the built-in default
-    // beat a consumer override set on an ancestor, because `.rsp-root` is the
-    // closer element. Only the light/dark switches may be repeated there.
-    const offenders = rules()
-      .filter((rule) => /\.rsp-root/.test(rule.selector))
-      .filter((rule) => /--rsp-(?!light\s*:|dark\s*:)[a-z-]+\s*:/.test(rule.body))
-      .map((rule) => rule.selector);
+  test("never declares a public --rsp-* token, so ancestor overrides always win", () => {
+    // The only public names the package may declare are the two switches; every
+    // themed value is declared under the private `--_rsp-` prefix. Declaring a
+    // public token would let the built-in default beat a consumer override.
+    const offenders = declaredProperties().filter(
+      (name) => name.startsWith("--rsp-") && name !== "--rsp-light" && name !== "--rsp-dark",
+    );
 
     expect(offenders).toEqual([]);
   });
 
-  test("every themed token resolves through the space toggle", () => {
-    const tokenLines = declarations.filter((line) =>
-      /^\s*--rsp-(bg|surface|header-bg|text|border|gridline|accent|selection-bg)\s*:/.test(line),
+  test("declares the private token layer on .rsp-root, so the resolved pin applies", () => {
+    // If these lived on `:root` the switch would be evaluated against the
+    // document root and `data-rsp-scheme` could never change the branch.
+    const privateTokenRules = rules().filter((rule) => /--_rsp-[\w-]+\s*:/.test(rule.body));
+
+    expect(privateTokenRules.length).toBeGreaterThan(0);
+    for (const rule of privateTokenRules) {
+      expect(rule.selector).toContain(".rsp-root");
+    }
+  });
+
+  test("every private token falls back to its public --rsp-* name", () => {
+    const aliasLines = declarations.filter((line) => /^\s*--_rsp-[\w-]+\s*:/.test(line));
+
+    expect(aliasLines.length).toBeGreaterThan(20);
+    for (const line of aliasLines) {
+      const name = /^\s*--_rsp-([\w-]+)\s*:/.exec(line)![1];
+      // e.g. `--_rsp-bg: var(--rsp-bg, ...)`
+      expect(line).toContain(`var(--rsp-${name},`);
+    }
+  });
+
+  test("themed private tokens resolve through the space toggle", () => {
+    const themed = declarations.filter((line) =>
+      /^\s*--_rsp-(bg|surface|header-bg|text|border|gridline|accent|selection-bg)\s*:/.test(line),
     );
 
-    expect(tokenLines.length).toBeGreaterThan(0);
-    for (const line of tokenLines) {
+    expect(themed.length).toBeGreaterThan(0);
+    for (const line of themed) {
       expect(line).toContain("var(--rsp-light,");
       expect(line).toContain("var(--rsp-dark,");
     }
+  });
+
+  test("rules consume the private tokens, never the public ones", () => {
+    // A rule reading `var(--rsp-accent)` directly would bypass the private
+    // layer and lose the built-in default when no override is set.
+    const offenders = declarations
+      .map((line, index) => ({ line, index }))
+      // Alias declarations legitimately read the public name as a fallback.
+      .filter(({ line }) => !/^\s*--_rsp-[\w-]+\s*:/.test(line))
+      .filter(({ line }) => /var\(\s*--rsp-(?!light|dark)/.test(line))
+      .map(({ line, index }) => `${index + 1}: ${line.trim()}`);
+
+    expect(offenders).toEqual([]);
   });
 });

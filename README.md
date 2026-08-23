@@ -88,8 +88,9 @@ top of `FormulaSheet`.
 
 ## Theming
 
-All colors, fonts and sizes are CSS custom properties declared on `:root`, so
-you can override them from **any** ancestor of the grid:
+All colors, fonts and sizes are CSS custom properties. The package only ever
+*reads* the public `--rsp-*` names, so an override on **any** ancestor of the
+grid always wins:
 
 ```css
 .my-panel {
@@ -97,6 +98,16 @@ you can override them from **any** ancestor of the grid:
   --rsp-bg: #ffffff;
   --rsp-header-bg: #f4f4f5;
   --rsp-cell-font-size: 13px;
+}
+```
+
+An override replaces both schemes, so pick a value that works in the mode(s) you
+support, or scope it per scheme:
+
+```css
+.my-panel { --rsp-bg: #ffffff; }
+@media (prefers-color-scheme: dark) {
+  .my-panel { --rsp-bg: #10131a; }
 }
 ```
 
@@ -128,6 +139,13 @@ switches.
 > lower it to switch variables that only exist next to a `color-scheme`
 > declaration, which makes shared-root tokens compute to an invalid value — in
 > production builds only. An equivalent space-toggle is used instead.
+
+> **Note** — internally each public token is aliased to a private `--_rsp-*`
+> property declared on `.rsp-root`, and the rules consume the private name. A
+> custom property containing `var()` is substituted at the element where it is
+> *declared*, so themed values declared on `:root` would be resolved against the
+> document root and a subtree pin could never change them. Treat `--_rsp-*` as
+> private and always override the public `--rsp-*` name.
 
 ### Cell fills stay readable
 

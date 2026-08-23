@@ -651,37 +651,37 @@ export function FormulaSheet({
             // the package stylesheet (`styles.css`) and resolve through
             // `light-dark()`, so tables follow the active color scheme.
             const style: React.CSSProperties = {
-              border: '1px solid var(--rsp-table-border-light)'
+              border: '1px solid var(--_rsp-table-border-light)'
             };
 
             if (isHeaderRow) {
               // Header row styling - accent theme like Excel
-              style.backgroundColor = 'var(--rsp-table-header-bg)';
-              style.color = 'var(--rsp-table-header-color)';
+              style.backgroundColor = 'var(--_rsp-table-header-bg)';
+              style.color = 'var(--_rsp-table-header-color)';
               style.fontWeight = 'bold';
-              style.borderBottom = '2px solid var(--rsp-table-header-border)';
+              style.borderBottom = '2px solid var(--_rsp-table-header-border)';
             } else {
               // Data rows - alternating background
               const dataRowIndex = cell.rowIndex - tableInfo.start.rowIndex - 1;
               if (dataRowIndex % 2 === 0) {
-                style.backgroundColor = 'var(--rsp-table-even-row-bg)';
+                style.backgroundColor = 'var(--_rsp-table-even-row-bg)';
               } else {
-                style.backgroundColor = 'var(--rsp-table-odd-row-bg)';
+                style.backgroundColor = 'var(--_rsp-table-odd-row-bg)';
               }
             }
 
             // Border styling
             if (isFirstColumn) {
-              style.borderLeft = '2px solid var(--rsp-table-border-color)';
+              style.borderLeft = '2px solid var(--_rsp-table-border-color)';
             }
             if (isLastColumn) {
-              style.borderRight = '2px solid var(--rsp-table-border-color)';
+              style.borderRight = '2px solid var(--_rsp-table-border-color)';
             }
             if (isHeaderRow) {
-              style.borderTop = '2px solid var(--rsp-table-border-color)';
+              style.borderTop = '2px solid var(--_rsp-table-border-color)';
             }
             if (isLastRow) {
-              style.borderBottom = '2px solid var(--rsp-table-border-color)';
+              style.borderBottom = '2px solid var(--_rsp-table-border-color)';
             }
 
             // Merge conditional styling with table styling

@@ -7,9 +7,8 @@
  * ---------------------------------------------------------------------------
  * Theming
  * ---------------------------------------------------------------------------
- * Every visual is driven by `--rsp-*` custom properties. Because the tokens are
- * declared on `:root` (not on `.rsp-root`), you can override them from *any*
- * ancestor and the grid will pick them up:
+ * Every visual is driven by a public `--rsp-*` custom property. Override any of
+ * them from *any* ancestor of the grid and the grid picks it up:
  *
  *   .my-panel { --rsp-accent: #7c3aed; --rsp-cell-font-size: 13px; }
  *
@@ -27,33 +26,56 @@
  *   <FormulaWorkbook className="rsp-theme-light" />
  *   <FormulaWorkbook className="rsp-theme-dark" />
  *
+ * ---------------------------------------------------------------------------
  * Implementation note — why not `light-dark()`?
  * ---------------------------------------------------------------------------
- * `light-dark()` would be the natural choice, but bundlers that target
- * browsers without native support (Vite's Lightning CSS, for example) lower it
- * to a pair of switch custom properties that are only emitted in rules which
- * *also* declare `color-scheme`. Tokens declared once on a shared root then
- * compute to an invalid value like `#ffffff #0f1523`, and every themed surface
- * silently falls back to `transparent` / inherited text — a failure that only
- * appears in a production build.
+ * `light-dark()` would be the natural choice, but bundlers that target browsers
+ * without native support (Vite's Lightning CSS, for example) lower it to a pair
+ * of switch custom properties that are only emitted in rules which *also*
+ * declare `color-scheme`. Tokens declared once on a shared root then compute to
+ * an invalid value like `#ffffff #0f1523`, and every themed surface silently
+ * falls back to `transparent` / inherited text — a failure that only appears in
+ * a production build.
  *
- * Instead the same space-toggle trick is applied directly, using our own
+ * Instead the same space-toggle trick is applied directly with our own
  * `--rsp-light` / `--rsp-dark` switches. Exactly one of the two is set to
- * `initial` (making its `var()` fall back to the color) while the other is set
- * to a single space (contributing nothing), so each token resolves to one
- * color. This is plain custom-property substitution that no bundler rewrites,
- * and it inherits, so an ancestor's pin still wins.
+ * `initial` (making its `var()` fall back to that branch's color) while the
+ * other is set to a single space (contributing nothing), so each token resolves
+ * to exactly one color. That is plain custom-property substitution, which no
+ * bundler rewrites.
  *
- * A plain stylesheet cannot read an ancestor's `color-scheme`, so the component
- * resolves it from the mounted element and reflects the result onto the grid
- * root as `data-rsp-scheme`. That covers a pin declared in CSS, inline, or via
- * the helper classes. The media query below is the pre-resolution default.
+ * ---------------------------------------------------------------------------
+ * Implementation note — why the private `--_rsp-*` layer?
+ * ---------------------------------------------------------------------------
+ * A custom property whose value contains `var()` is substituted **at the
+ * element where it is declared**, and only the *result* inherits. So a themed
+ * token declared on `:root` is resolved using `:root`'s switches; re-declaring
+ * `--rsp-light` / `--rsp-dark` further down the tree cannot re-resolve it.
+ *
+ * That matters because a plain stylesheet cannot read an *ancestor's*
+ * `color-scheme`. The component resolves it from the mounted element and
+ * reflects it as `data-rsp-scheme` on `.rsp-root` — but if the themed tokens
+ * lived on `:root`, that attribute would be inert: on a dark-mode device a grid
+ * pinned to `color-scheme: light` still painted its dark palette, giving the
+ * light-page/dark-grid "mix".
+ *
+ * So the switch is applied where the scheme is known. Each public `--rsp-*`
+ * token gets a private `--_rsp-*` alias declared on `.rsp-root` itself:
+ *
+ *   --_rsp-bg: var(--rsp-bg, <light> or <dark>);
+ *
+ * Rules consume `--_rsp-*`. The public `--rsp-*` name is only ever *read* (as
+ * the `var()` fallback), never declared by the package, so:
+ *
+ *   - a consumer override on any ancestor still wins, because it is what the
+ *     fallback resolves to, and
+ *   - the light/dark branch is chosen using the switches in effect on
+ *     `.rsp-root`, so `data-rsp-scheme` and the helper classes actually work.
  */
 
 /* Default: follow the OS preference. `.rsp-root` is included so the grid still
-   themes correctly when the stylesheet is loaded into a shadow root or another
-   tree where `:root` is not an ancestor. Only the two switches are repeated —
-   never the tokens themselves (see below). */
+   themes correctly inside a shadow root or any tree where `:root` is not an
+   ancestor. Only the two switches are declared here — never the tokens. */
 :root,
 .rsp-root {
   --rsp-light: initial;
@@ -69,7 +91,8 @@
 }
 
 /* Resolved by the component from the inherited `color-scheme`, so a pin set in
-   CSS, inline, or via the helper classes below is all honoured. */
+   CSS, inline, or via the helper classes below is honoured. This has to come
+   after the media query so an explicit pin beats the OS preference. */
 [data-rsp-scheme="light"] {
   --rsp-light: initial;
   --rsp-dark: ;
@@ -80,8 +103,8 @@
   --rsp-dark: initial;
 }
 
-/* Explicit opt-in pins. `color-scheme` is set too so native scrollbars and
-   form controls agree with the token switch. */
+/* Explicit opt-in pins. `color-scheme` is set too so native scrollbars and form
+   controls agree with the token switch. */
 .rsp-theme-light {
   color-scheme: light;
   --rsp-light: initial;
@@ -94,28 +117,28 @@
   --rsp-dark: initial;
 }
 
-/* Tokens are declared ONLY on `:root`, so a consumer can override any of them
-   from any ancestor of the grid. Repeating this block on `.rsp-root` would let
-   the built-in defaults beat an ancestor's override, because `.rsp-root` is the
-   closer element. */
-:root {
+/* The private token layer. Declared on `.rsp-root` so the light/dark switch is
+   evaluated with the *resolved* scheme for this subtree, while each value falls
+   back to the public `--rsp-*` name so a consumer override on any ancestor
+   still wins. Never declare a public `--rsp-*` token here. */
+.rsp-root {
   /* Surfaces */
-  --rsp-bg: var(--rsp-light, #ffffff) var(--rsp-dark, #0f1523);
-  --rsp-surface: var(--rsp-light, #ffffff) var(--rsp-dark, #151c2c);
-  --rsp-header-bg: var(--rsp-light, #f7f8fa) var(--rsp-dark, #1a2233);
-  --rsp-header-active-bg: var(--rsp-light, #e9edf5) var(--rsp-dark, #24304a);
-  --rsp-corner-bg: var(--rsp-light, #eef1f6) var(--rsp-dark, #1a2233);
-  --rsp-editor-bg: var(--rsp-light, #ffffff) var(--rsp-dark, #1a2233);
+  --_rsp-bg: var(--rsp-bg, var(--rsp-light, #ffffff) var(--rsp-dark, #0f1523));
+  --_rsp-surface: var(--rsp-surface, var(--rsp-light, #ffffff) var(--rsp-dark, #151c2c));
+  --_rsp-header-bg: var(--rsp-header-bg, var(--rsp-light, #f7f8fa) var(--rsp-dark, #1a2233));
+  --_rsp-header-active-bg: var(--rsp-header-active-bg, var(--rsp-light, #e9edf5) var(--rsp-dark, #24304a));
+  --_rsp-corner-bg: var(--rsp-corner-bg, var(--rsp-light, #eef1f6) var(--rsp-dark, #1a2233));
+  --_rsp-editor-bg: var(--rsp-editor-bg, var(--rsp-light, #ffffff) var(--rsp-dark, #1a2233));
 
   /* Lines */
-  --rsp-border: var(--rsp-light, #e3e7ee) var(--rsp-dark, #2a3346);
-  --rsp-corner-border: var(--rsp-light, #d7dce6) var(--rsp-dark, #2a3346);
-  --rsp-gridline: var(--rsp-light, #e8ebf1) var(--rsp-dark, #232c3d);
+  --_rsp-border: var(--rsp-border, var(--rsp-light, #e3e7ee) var(--rsp-dark, #2a3346));
+  --_rsp-corner-border: var(--rsp-corner-border, var(--rsp-light, #d7dce6) var(--rsp-dark, #2a3346));
+  --_rsp-gridline: var(--rsp-gridline, var(--rsp-light, #e8ebf1) var(--rsp-dark, #232c3d));
 
   /* Text */
-  --rsp-text: var(--rsp-light, #101828) var(--rsp-dark, #e8ecf4);
-  --rsp-header-text: var(--rsp-light, #5a6478) var(--rsp-dark, #99a4bb);
-  --rsp-muted-text: var(--rsp-light, #6b7280) var(--rsp-dark, #8c97ad);
+  --_rsp-text: var(--rsp-text, var(--rsp-light, #101828) var(--rsp-dark, #e8ecf4));
+  --_rsp-header-text: var(--rsp-header-text, var(--rsp-light, #5a6478) var(--rsp-dark, #99a4bb));
+  --_rsp-muted-text: var(--rsp-muted-text, var(--rsp-light, #6b7280) var(--rsp-dark, #8c97ad));
 
   /* Accent / selection.
      NOTE: `@ricsam/selection-manager` paints the selection *perimeter* as an
@@ -123,60 +146,49 @@
      The default accent stays in that blue family so the perimeter agrees with
      the rest of the chrome out of the box. Overriding `--rsp-accent` with a
      distant hue will make the perimeter read slightly differently. */
-  --rsp-accent: var(--rsp-light, #2196f3) var(--rsp-dark, #58a6ff);
-  --rsp-accent-contrast: #ffffff;
-  --rsp-selection-bg: var(--rsp-light, #e8f2fe) var(--rsp-dark, #17304f);
-  --rsp-selection-range-bg: var(--rsp-light, #f1f7fe) var(--rsp-dark, #14263d);
-  --rsp-hover-bg: var(--rsp-light, #f5f7fa) var(--rsp-dark, #1c2436);
-  --rsp-focus-ring: var(--rsp-light, rgba(33, 150, 243, 0.22)) var(--rsp-dark, rgba(88, 166, 255, 0.28));
+  --_rsp-accent: var(--rsp-accent, var(--rsp-light, #2196f3) var(--rsp-dark, #58a6ff));
+  --_rsp-accent-contrast: var(--rsp-accent-contrast, #ffffff);
+  --_rsp-selection-bg: var(--rsp-selection-bg, var(--rsp-light, #e8f2fe) var(--rsp-dark, #17304f));
+  --_rsp-selection-range-bg: var(--rsp-selection-range-bg, var(--rsp-light, #f1f7fe) var(--rsp-dark, #14263d));
+  --_rsp-hover-bg: var(--rsp-hover-bg, var(--rsp-light, #f5f7fa) var(--rsp-dark, #1c2436));
+  --_rsp-focus-ring: var(--rsp-focus-ring, var(--rsp-light, rgba(33, 150, 243, 0.22)) var(--rsp-dark, rgba(88, 166, 255, 0.28)));
 
   /* Danger (delete buttons, invalid input) */
-  --rsp-danger: var(--rsp-light, #d92d20) var(--rsp-dark, #ff8a80);
-  --rsp-danger-bg: var(--rsp-light, #fef3f2) var(--rsp-dark, #3a1512);
+  --_rsp-danger: var(--rsp-danger, var(--rsp-light, #d92d20) var(--rsp-dark, #ff8a80));
+  --_rsp-danger-bg: var(--rsp-danger-bg, var(--rsp-light, #fef3f2) var(--rsp-dark, #3a1512));
 
   /* Tables (consumed by the workbook's inline cell styles) */
-  --rsp-table-header-bg: var(--rsp-light, #2196f3) var(--rsp-dark, #1c3a5e);
-  --rsp-table-header-color: var(--rsp-light, #ffffff) var(--rsp-dark, #e8ecf4);
-  --rsp-table-header-border: var(--rsp-light, #1877c9) var(--rsp-dark, #2a5384);
-  --rsp-table-even-row-bg: var(--rsp-light, #f7f9fc) var(--rsp-dark, #161e2e);
-  --rsp-table-odd-row-bg: var(--rsp-light, #ffffff) var(--rsp-dark, #131a28);
-  --rsp-table-border-color: var(--rsp-light, #2196f3) var(--rsp-dark, #34405c);
-  --rsp-table-border-light: var(--rsp-light, #dfe4ec) var(--rsp-dark, #2a3346);
+  --_rsp-table-header-bg: var(--rsp-table-header-bg, var(--rsp-light, #2196f3) var(--rsp-dark, #1c3a5e));
+  --_rsp-table-header-color: var(--rsp-table-header-color, var(--rsp-light, #ffffff) var(--rsp-dark, #e8ecf4));
+  --_rsp-table-header-border: var(--rsp-table-header-border, var(--rsp-light, #1877c9) var(--rsp-dark, #2a5384));
+  --_rsp-table-even-row-bg: var(--rsp-table-even-row-bg, var(--rsp-light, #f7f9fc) var(--rsp-dark, #161e2e));
+  --_rsp-table-odd-row-bg: var(--rsp-table-odd-row-bg, var(--rsp-light, #ffffff) var(--rsp-dark, #131a28));
+  --_rsp-table-border-color: var(--rsp-table-border-color, var(--rsp-light, #2196f3) var(--rsp-dark, #34405c));
+  --_rsp-table-border-light: var(--rsp-table-border-light, var(--rsp-light, #dfe4ec) var(--rsp-dark, #2a3346));
 
-  /* Typography */
-  --rsp-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
-  --rsp-mono-font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo,
-    Consolas, "Liberation Mono", monospace;
-  --rsp-cell-font-size: 12px;
-  --rsp-header-font-size: 11px;
+  /* Typography (scheme-independent, but aliased for one consistent lookup) */
+  --_rsp-font-family: var(--rsp-font-family, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
+  --_rsp-mono-font-family: var(--rsp-mono-font-family, ui-monospace, SFMono-Regular,
+    "SF Mono", Menlo, Consolas, "Liberation Mono", monospace);
+  --_rsp-cell-font-size: var(--rsp-cell-font-size, 12px);
+  --_rsp-header-font-size: var(--rsp-header-font-size, 11px);
 
   /* Shape + motion */
-  --rsp-radius: 8px;
-  --rsp-radius-sm: 5px;
-  --rsp-cell-padding: 0 7px;
-  --rsp-transition: 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  --_rsp-radius: var(--rsp-radius, 8px);
+  --_rsp-radius-sm: var(--rsp-radius-sm, 5px);
+  --_rsp-cell-padding: var(--rsp-cell-padding, 0 7px);
+  --_rsp-transition: var(--rsp-transition, 120ms cubic-bezier(0.4, 0, 0.2, 1));
 
   /* Fill handle */
-  --rsp-fill-handle-size: 8px;
-}
-
-/* Opt-in scheme pins. Applied to `.rsp-root` (or any ancestor) these force one
-   mode regardless of the OS preference, and every `light-dark()` token below
-   follows because `color-scheme` inherits. */
-.rsp-theme-light {
-  color-scheme: light;
-}
-
-.rsp-theme-dark {
-  color-scheme: dark;
+  --_rsp-fill-handle-size: var(--rsp-fill-handle-size, 8px);
 }
 
 .rsp-root {
   /* No `color-scheme` here on purpose: declaring it would override a pin set by
-     an ancestor. See the file header. */
-  color: var(--rsp-text);
-  font-family: var(--rsp-font-family);
+     an ancestor. The resolved value arrives as `data-rsp-scheme` instead. */
+  color: var(--_rsp-text);
+  font-family: var(--_rsp-font-family);
 }
 
 .rsp-root *,
@@ -193,9 +205,9 @@
   position: relative;
   overflow: hidden;
   user-select: none;
-  background: var(--rsp-bg);
-  color: var(--rsp-text);
-  font-family: var(--rsp-font-family);
+  background: var(--_rsp-bg);
+  color: var(--_rsp-text);
+  font-family: var(--_rsp-font-family);
 }
 
 .rsp-container:focus {
@@ -203,7 +215,7 @@
 }
 
 .rsp-container.rsp-focused {
-  box-shadow: inset 0 0 0 1px var(--rsp-accent);
+  box-shadow: inset 0 0 0 1px var(--_rsp-accent);
 }
 
 .rsp-canvas,
@@ -218,9 +230,9 @@
   position: absolute;
   border: 1px solid transparent;
   background: transparent;
-  padding: var(--rsp-cell-padding);
-  font-size: var(--rsp-cell-font-size);
-  font-family: var(--rsp-font-family);
+  padding: var(--_rsp-cell-padding);
+  font-size: var(--_rsp-cell-font-size);
+  font-family: var(--_rsp-font-family);
   font-variant-numeric: tabular-nums;
   overflow: hidden;
   white-space: pre;
@@ -229,7 +241,7 @@
   cursor: cell;
   display: flex;
   align-items: center;
-  color: var(--rsp-text);
+  color: var(--_rsp-text);
   box-sizing: border-box;
 }
 
@@ -241,17 +253,17 @@
 /* Hover tint must never repaint a cell the consumer has colored, so it is
    restricted to "plain" cells (no custom background). */
 .rsp-cell.rsp-cell-plain:hover {
-  background: var(--rsp-hover-bg);
+  background: var(--_rsp-hover-bg);
 }
 
 /* `rsp-cell-plain` marks cells whose background is not overridden by a
    consumer-supplied custom style, so selection tinting is safe to apply. */
 .rsp-cell.rsp-cell-in-selection.rsp-cell-plain {
-  background: var(--rsp-selection-range-bg);
+  background: var(--_rsp-selection-range-bg);
 }
 
 .rsp-cell.rsp-cell-selected.rsp-cell-plain {
-  background: var(--rsp-selection-bg);
+  background: var(--_rsp-selection-bg);
 }
 
 /* The selection perimeter is painted by the selection manager as an inline
@@ -271,11 +283,11 @@
 .rsp-cell.rsp-cell-editing.rsp-cell-plain,
 .rsp-cell.rsp-cell-selected.rsp-cell-editing,
 .rsp-cell.rsp-cell-selected.rsp-cell-editing.rsp-cell-plain {
-  background: var(--rsp-editor-bg);
-  color: var(--rsp-text);
+  background: var(--_rsp-editor-bg);
+  color: var(--_rsp-text);
   box-shadow:
-    inset 0 0 0 2px var(--rsp-accent),
-    0 6px 16px -4px var(--rsp-focus-ring);
+    inset 0 0 0 2px var(--_rsp-accent),
+    0 6px 16px -4px var(--_rsp-focus-ring);
   z-index: 999;
   pointer-events: none;
 }
@@ -288,11 +300,11 @@
   outline: none;
   padding: 0;
   margin: 0;
-  font-size: var(--rsp-cell-font-size);
-  font-family: var(--rsp-font-family);
+  font-size: var(--_rsp-cell-font-size);
+  font-family: var(--_rsp-font-family);
   background: transparent;
-  color: var(--rsp-text);
-  caret-color: var(--rsp-accent);
+  color: var(--_rsp-text);
+  caret-color: var(--_rsp-accent);
   resize: none;
   overflow: hidden;
   z-index: 1000;
@@ -304,10 +316,10 @@
   position: absolute;
   bottom: -1px;
   right: -1px;
-  width: var(--rsp-fill-handle-size);
-  height: var(--rsp-fill-handle-size);
-  background-color: var(--rsp-accent);
-  border: 1px solid var(--rsp-bg);
+  width: var(--_rsp-fill-handle-size);
+  height: var(--_rsp-fill-handle-size);
+  background-color: var(--_rsp-accent);
+  border: 1px solid var(--_rsp-bg);
   border-radius: 1px;
   cursor: crosshair;
   z-index: 3;
@@ -317,65 +329,65 @@
 
 .rsp-header {
   position: absolute;
-  border: 1px solid var(--rsp-border);
-  background-color: var(--rsp-header-bg);
+  border: 1px solid var(--_rsp-border);
+  background-color: var(--_rsp-header-bg);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--rsp-header-font-size);
+  font-size: var(--_rsp-header-font-size);
   font-weight: 500;
   letter-spacing: 0.02em;
   cursor: pointer;
   user-select: none;
-  color: var(--rsp-header-text);
+  color: var(--_rsp-header-text);
   box-sizing: border-box;
-  transition: background-color var(--rsp-transition), color var(--rsp-transition);
+  transition: background-color var(--_rsp-transition), color var(--_rsp-transition);
 }
 
 .rsp-header:hover {
-  background-color: var(--rsp-header-active-bg);
-  color: var(--rsp-text);
+  background-color: var(--_rsp-header-active-bg);
+  color: var(--_rsp-text);
 }
 
 .rsp-header.rsp-header-selected {
-  background-color: var(--rsp-header-active-bg);
-  color: var(--rsp-accent);
+  background-color: var(--_rsp-header-active-bg);
+  color: var(--_rsp-accent);
   font-weight: 600;
 }
 
 /* A crisp accent edge on the side that faces the grid marks the active
    row/column without changing the header's box metrics. */
 .rsp-header.rsp-header-col.rsp-header-selected {
-  box-shadow: inset 0 -2px 0 var(--rsp-accent);
+  box-shadow: inset 0 -2px 0 var(--_rsp-accent);
 }
 
 .rsp-header.rsp-header-row.rsp-header-selected {
-  box-shadow: inset -2px 0 0 var(--rsp-accent);
+  box-shadow: inset -2px 0 0 var(--_rsp-accent);
 }
 
 .rsp-column-headers,
 .rsp-row-headers {
   position: absolute;
   overflow: hidden;
-  background-color: var(--rsp-header-bg);
+  background-color: var(--_rsp-header-bg);
   z-index: 1;
 }
 
 .rsp-column-headers {
   top: 0;
-  border-bottom: 1px solid var(--rsp-border);
+  border-bottom: 1px solid var(--_rsp-border);
 }
 
 .rsp-row-headers {
-  border-right: 1px solid var(--rsp-border);
+  border-right: 1px solid var(--_rsp-border);
 }
 
 .rsp-corner-header {
   position: absolute;
   top: 0;
   left: 0;
-  background-color: var(--rsp-corner-bg);
-  border: 1px solid var(--rsp-corner-border);
+  background-color: var(--_rsp-corner-bg);
+  border: 1px solid var(--_rsp-corner-border);
   z-index: 20;
 }
 
@@ -401,7 +413,7 @@
 
 .rsp-col-resize-handle:hover,
 .rsp-row-resize-handle:hover {
-  background: var(--rsp-accent);
+  background: var(--_rsp-accent);
 }
 
 /* Overlays --------------------------------------------------------- */
@@ -421,9 +433,9 @@
   position: absolute;
   opacity: 0.5;
   pointer-events: none;
-  border: 2px dashed var(--rsp-accent);
-  border-radius: var(--rsp-radius-sm);
-  background-color: var(--rsp-focus-ring);
+  border: 2px dashed var(--_rsp-accent);
+  border-radius: var(--_rsp-radius-sm);
+  background-color: var(--_rsp-focus-ring);
 }
 
 .rsp-overlay-placeholder-label {
@@ -431,7 +443,7 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  color: var(--rsp-accent);
+  color: var(--_rsp-accent);
   font-weight: 600;
   font-size: 14px;
   white-space: nowrap;
@@ -447,9 +459,9 @@
   flex-direction: column;
   height: 100%;
   width: 100%;
-  background: var(--rsp-bg);
-  color: var(--rsp-text);
-  font-family: var(--rsp-font-family);
+  background: var(--_rsp-bg);
+  color: var(--_rsp-text);
+  font-family: var(--_rsp-font-family);
 }
 
 .rsp-workbook-header {
@@ -457,8 +469,8 @@
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
-  border-bottom: 1px solid var(--rsp-border);
-  background: var(--rsp-header-bg);
+  border-bottom: 1px solid var(--_rsp-border);
+  background: var(--_rsp-header-bg);
   flex: none;
 }
 
@@ -466,7 +478,7 @@
   font-weight: 600;
   font-size: 12px;
   letter-spacing: -0.01em;
-  color: var(--rsp-text);
+  color: var(--_rsp-text);
   white-space: nowrap;
 }
 
@@ -481,8 +493,8 @@
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  border-top: 1px solid var(--rsp-border);
-  background: var(--rsp-header-bg);
+  border-top: 1px solid var(--_rsp-border);
+  background: var(--_rsp-header-bg);
   flex: none;
 }
 
@@ -500,36 +512,36 @@
   gap: 6px;
   padding: 5px 11px;
   border: 1px solid transparent;
-  border-radius: var(--rsp-radius-sm);
+  border-radius: var(--_rsp-radius-sm);
   font-size: 12px;
   line-height: 1.4;
   cursor: pointer;
   white-space: nowrap;
-  color: var(--rsp-header-text);
+  color: var(--_rsp-header-text);
   background: transparent;
-  transition: background-color var(--rsp-transition), color var(--rsp-transition);
+  transition: background-color var(--_rsp-transition), color var(--_rsp-transition);
 }
 
 .rsp-sheet-tab:hover {
-  background: var(--rsp-hover-bg);
-  color: var(--rsp-text);
+  background: var(--_rsp-hover-bg);
+  color: var(--_rsp-text);
 }
 
 .rsp-sheet-tab.rsp-sheet-tab-active {
-  background: var(--rsp-accent);
+  background: var(--_rsp-accent);
   border-color: transparent;
-  color: var(--rsp-accent-contrast);
+  color: var(--_rsp-accent-contrast);
   font-weight: 600;
 }
 
 /* Icon buttons inside the active tab must read against the accent fill. */
 .rsp-sheet-tab.rsp-sheet-tab-active .rsp-icon-button {
-  color: var(--rsp-accent-contrast);
+  color: var(--_rsp-accent-contrast);
 }
 
 .rsp-sheet-tab.rsp-sheet-tab-active .rsp-icon-button:hover {
   background: rgba(255, 255, 255, 0.22);
-  color: var(--rsp-accent-contrast);
+  color: var(--_rsp-accent-contrast);
 }
 
 /* Per-tab action buttons reveal on hover / when the tab is active. */
@@ -538,7 +550,7 @@
   align-items: center;
   gap: 2px;
   opacity: 0;
-  transition: opacity var(--rsp-transition);
+  transition: opacity var(--_rsp-transition);
 }
 
 .rsp-sheet-tab:hover .sheet-tab-actions,
@@ -549,14 +561,14 @@
 
 .rsp-sheet-tab-input {
   font: inherit;
-  color: var(--rsp-text);
-  background: var(--rsp-editor-bg);
-  border: 1px solid var(--rsp-accent);
-  border-radius: var(--rsp-radius-sm);
+  color: var(--_rsp-text);
+  background: var(--_rsp-editor-bg);
+  border: 1px solid var(--_rsp-accent);
+  border-radius: var(--_rsp-radius-sm);
   padding: 2px 6px;
   min-width: 80px;
   outline: none;
-  box-shadow: 0 0 0 3px var(--rsp-focus-ring);
+  box-shadow: 0 0 0 3px var(--_rsp-focus-ring);
 }
 
 .rsp-icon-button {
@@ -567,18 +579,18 @@
   height: 22px;
   padding: 0;
   border: none;
-  border-radius: var(--rsp-radius-sm);
+  border-radius: var(--_rsp-radius-sm);
   background: transparent;
-  color: var(--rsp-muted-text);
+  color: var(--_rsp-muted-text);
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
-  transition: background-color var(--rsp-transition), color var(--rsp-transition);
+  transition: background-color var(--_rsp-transition), color var(--_rsp-transition);
 }
 
 .rsp-icon-button:hover {
-  background: var(--rsp-hover-bg);
-  color: var(--rsp-text);
+  background: var(--_rsp-hover-bg);
+  color: var(--_rsp-text);
 }
 
 .rsp-icon-button:disabled {
@@ -587,8 +599,8 @@
 }
 
 .rsp-icon-button.rsp-icon-button-delete:hover {
-  background: var(--rsp-danger-bg);
-  color: var(--rsp-danger);
+  background: var(--_rsp-danger-bg);
+  color: var(--_rsp-danger);
 }
 
 .rsp-add-sheet-button {
@@ -598,20 +610,20 @@
   gap: 4px;
   height: 26px;
   padding: 0 11px;
-  border: 1px dashed var(--rsp-border);
-  border-radius: var(--rsp-radius-sm);
+  border: 1px dashed var(--_rsp-border);
+  border-radius: var(--_rsp-radius-sm);
   background: transparent;
-  color: var(--rsp-header-text);
+  color: var(--_rsp-header-text);
   font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
-  transition: border-color var(--rsp-transition), color var(--rsp-transition);
+  transition: border-color var(--_rsp-transition), color var(--_rsp-transition);
 }
 
 .rsp-add-sheet-button:hover {
-  border-color: var(--rsp-accent);
+  border-color: var(--_rsp-accent);
   border-style: solid;
-  color: var(--rsp-accent);
+  color: var(--_rsp-accent);
 }
 
 .rsp-zoom-controls {
@@ -626,7 +638,7 @@
   min-width: 44px;
   text-align: center;
   font-size: 11px;
-  color: var(--rsp-muted-text);
+  color: var(--_rsp-muted-text);
   font-variant-numeric: tabular-nums;
 }
 
@@ -637,44 +649,44 @@
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border-bottom: 1px solid var(--rsp-border);
-  background: var(--rsp-bg);
+  border-bottom: 1px solid var(--_rsp-border);
+  background: var(--_rsp-bg);
   flex: none;
 }
 
 .rsp-name-box {
   min-width: 84px;
   padding: 4px 8px;
-  border: 1px solid var(--rsp-border);
-  border-radius: var(--rsp-radius-sm);
-  background: var(--rsp-header-bg);
-  font-family: var(--rsp-mono-font-family);
+  border: 1px solid var(--_rsp-border);
+  border-radius: var(--_rsp-radius-sm);
+  background: var(--_rsp-header-bg);
+  font-family: var(--_rsp-mono-font-family);
   font-size: 11px;
   text-align: center;
-  color: var(--rsp-text);
+  color: var(--_rsp-text);
 }
 
 .rsp-formula-input {
   flex: 1;
   min-width: 0;
   padding: 4px 9px;
-  border: 1px solid var(--rsp-border);
-  border-radius: var(--rsp-radius-sm);
-  background: var(--rsp-editor-bg);
-  color: var(--rsp-text);
-  font-family: var(--rsp-mono-font-family);
+  border: 1px solid var(--_rsp-border);
+  border-radius: var(--_rsp-radius-sm);
+  background: var(--_rsp-editor-bg);
+  color: var(--_rsp-text);
+  font-family: var(--_rsp-mono-font-family);
   font-size: 12px;
-  transition: border-color var(--rsp-transition), box-shadow var(--rsp-transition);
+  transition: border-color var(--_rsp-transition), box-shadow var(--_rsp-transition);
 }
 
 .rsp-formula-input::placeholder {
-  color: var(--rsp-muted-text);
+  color: var(--_rsp-muted-text);
 }
 
 .rsp-formula-input:focus {
   outline: none;
-  border-color: var(--rsp-accent);
-  box-shadow: 0 0 0 3px var(--rsp-focus-ring);
+  border-color: var(--_rsp-accent);
+  box-shadow: 0 0 0 3px var(--_rsp-focus-ring);
 }
 
 .rsp-formula-input:disabled {
@@ -685,7 +697,7 @@
 /* Scrollbars ------------------------------------------------------- */
 
 .rsp-root {
-  scrollbar-color: var(--rsp-border) transparent;
+  scrollbar-color: var(--_rsp-border) transparent;
 }
 
 .rsp-root ::-webkit-scrollbar {
@@ -698,11 +710,11 @@
 }
 
 .rsp-root ::-webkit-scrollbar-thumb {
-  background: var(--rsp-border);
-  border: 2px solid var(--rsp-bg);
+  background: var(--_rsp-border);
+  border: 2px solid var(--_rsp-bg);
   border-radius: 99px;
 }
 
 .rsp-root ::-webkit-scrollbar-thumb:hover {
-  background: var(--rsp-muted-text);
+  background: var(--_rsp-muted-text);
 }

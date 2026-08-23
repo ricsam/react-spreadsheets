@@ -52,7 +52,7 @@ import {
  * `light-dark()` value comes back verbatim and is not paintable.
  *
  * Instead we read a real, inherited property (`color`) from a hidden probe
- * element that declares `color: var(--rsp-gridline)`. The browser resolves
+ * element that declares `color: var(--_rsp-gridline)`. The browser resolves
  * `light-dark()` against the probe's inherited `color-scheme`, which yields a
  * paintable `rgb(...)` string that always matches what the DOM is showing.
  */
@@ -2093,7 +2093,7 @@ export const Spreadsheet = forwardRef<
                   height: 0,
                   visibility: 'hidden',
                   pointerEvents: 'none',
-                  color: 'var(--rsp-gridline)'
+                  color: 'var(--_rsp-gridline)'
                 }}
               />
 
