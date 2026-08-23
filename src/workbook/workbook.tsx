@@ -21,6 +21,7 @@ import type {
 } from '../types';
 import type { WorkbookSelectionManager } from './workbook-selection-manager';
 import { cn } from '../utils/cn';
+import { useSchemeRoot } from '../utils/use-scheme-root';
 import { type CellDataUpdate, ClipboardUtils } from '../clipboard/clipboard-manager';
 import { normalizeBorderSides, hasAnyBorderSide } from './border-sides';
 import { coerceCellInput, getCellDisplayText, getCellDisplayValue } from './cell-data-type';
@@ -354,6 +355,7 @@ export function FormulaSheet({
   showFormulas = false,
   ...rest
 }: FormulaSheetProps) {
+  const schemeRoot = useSchemeRoot();
   const [selectedArea, setSelectedArea] = useState<SMArea | null>(null);
 
   const clipboardManager = React.useMemo(
@@ -552,7 +554,7 @@ export function FormulaSheet({
   // render nothing. The next render will have the correct sheet name.
   if (!sheet) {
     return (
-      <div className="rsp-root rsp-workbook">
+      <div className="rsp-root rsp-workbook" {...schemeRoot}>
         {toolbar}
         <div style={{ flex: 1 }} />
       </div>
@@ -560,7 +562,7 @@ export function FormulaSheet({
   }
 
   return (
-    <div className="rsp-root rsp-workbook">
+    <div className="rsp-root rsp-workbook" {...schemeRoot}>
       {/* Optional Toolbar */}
       {toolbar}
 
@@ -912,6 +914,7 @@ export function FormulaWorkbook({
   showFormulas = false,
   ...rest
 }: FormulaWorkbookProps) {
+  const schemeRoot = useSchemeRoot();
   const state = useEngine(engine);
   const [renamingSheet, setRenamingSheet] = useState<string | null>(null);
   const [newSheetName, setNewSheetName] = useState<string>('');
@@ -1084,7 +1087,7 @@ export function FormulaWorkbook({
   };
 
   return (
-    <div className="rsp-root rsp-workbook">
+    <div className="rsp-root rsp-workbook" {...schemeRoot}>
       {/* Optional Toolbar */}
       {toolbar}
 

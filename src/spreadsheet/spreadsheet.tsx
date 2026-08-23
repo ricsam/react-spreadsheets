@@ -2062,7 +2062,14 @@ export const Spreadsheet = forwardRef<
     );
 
     return (
-      <div className={cn('rsp-root', className)} style={{ position: 'relative', ...style }} {...containerProps}>
+      <div
+        className={cn('rsp-root', className)}
+        // A stylesheet cannot read an ancestor's `color-scheme`, so the resolved
+        // value is reflected here to drive the light/dark token switch.
+        data-rsp-scheme={colorScheme}
+        style={{ position: 'relative', ...style }}
+        {...containerProps}
+      >
         <div style={{ position: 'absolute', inset: 0 }} ref={containerRef}>
           {Boolean(width && height) && (
             <div

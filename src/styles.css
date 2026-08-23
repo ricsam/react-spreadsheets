@@ -16,12 +16,8 @@
  * ---------------------------------------------------------------------------
  * Light / dark
  * ---------------------------------------------------------------------------
- * Colors resolve through `light-dark()`, which follows the inherited
- * `color-scheme`. The grid deliberately does NOT declare `color-scheme` on
- * `.rsp-root`, because doing so would override a `color-scheme` pin set by an
- * ancestor and de-sync the grid from the surrounding page.
- *
- * To pin a subtree, set `color-scheme` on any ancestor (or on `.rsp-root`):
+ * By default the grid follows the user's OS preference. To pin a subtree, set
+ * `color-scheme` on the grid root or on any ancestor:
  *
  *   .workbook-stage { color-scheme: light; }   // always light
  *   .workbook-stage { color-scheme: dark; }    // always dark
@@ -30,26 +26,90 @@
  *
  *   <FormulaWorkbook className="rsp-theme-light" />
  *   <FormulaWorkbook className="rsp-theme-dark" />
+ *
+ * Implementation note — why not `light-dark()`?
+ * ---------------------------------------------------------------------------
+ * `light-dark()` would be the natural choice, but bundlers that target
+ * browsers without native support (Vite's Lightning CSS, for example) lower it
+ * to a pair of switch custom properties that are only emitted in rules which
+ * *also* declare `color-scheme`. Tokens declared once on a shared root then
+ * compute to an invalid value like `#ffffff #0f1523`, and every themed surface
+ * silently falls back to `transparent` / inherited text — a failure that only
+ * appears in a production build.
+ *
+ * Instead the same space-toggle trick is applied directly, using our own
+ * `--rsp-light` / `--rsp-dark` switches. Exactly one of the two is set to
+ * `initial` (making its `var()` fall back to the color) while the other is set
+ * to a single space (contributing nothing), so each token resolves to one
+ * color. This is plain custom-property substitution that no bundler rewrites,
+ * and it inherits, so an ancestor's pin still wins.
+ *
+ * A plain stylesheet cannot read an ancestor's `color-scheme`, so the component
+ * resolves it from the mounted element and reflects the result onto the grid
+ * root as `data-rsp-scheme`. That covers a pin declared in CSS, inline, or via
+ * the helper classes. The media query below is the pre-resolution default.
  */
 
-:root {
+/* Default: follow the OS preference. */
+:root,
+.rsp-root {
+  --rsp-light: initial;
+  --rsp-dark: ;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root,
+  .rsp-root {
+    --rsp-light: ;
+    --rsp-dark: initial;
+  }
+}
+
+/* Resolved by the component from the inherited `color-scheme`, so a pin set in
+   CSS, inline, or via the helper classes below is all honoured. */
+[data-rsp-scheme="light"] {
+  --rsp-light: initial;
+  --rsp-dark: ;
+}
+
+[data-rsp-scheme="dark"] {
+  --rsp-light: ;
+  --rsp-dark: initial;
+}
+
+/* Explicit opt-in pins. `color-scheme` is set too so native scrollbars and
+   form controls agree with the token switch. */
+.rsp-theme-light {
+  color-scheme: light;
+  --rsp-light: initial;
+  --rsp-dark: ;
+}
+
+.rsp-theme-dark {
+  color-scheme: dark;
+  --rsp-light: ;
+  --rsp-dark: initial;
+}
+
+:root,
+.rsp-root {
   /* Surfaces */
-  --rsp-bg: light-dark(#ffffff, #0f1523);
-  --rsp-surface: light-dark(#ffffff, #151c2c);
-  --rsp-header-bg: light-dark(#f7f8fa, #1a2233);
-  --rsp-header-active-bg: light-dark(#e9edf5, #24304a);
-  --rsp-corner-bg: light-dark(#eef1f6, #1a2233);
-  --rsp-editor-bg: light-dark(#ffffff, #1a2233);
+  --rsp-bg: var(--rsp-light, #ffffff) var(--rsp-dark, #0f1523);
+  --rsp-surface: var(--rsp-light, #ffffff) var(--rsp-dark, #151c2c);
+  --rsp-header-bg: var(--rsp-light, #f7f8fa) var(--rsp-dark, #1a2233);
+  --rsp-header-active-bg: var(--rsp-light, #e9edf5) var(--rsp-dark, #24304a);
+  --rsp-corner-bg: var(--rsp-light, #eef1f6) var(--rsp-dark, #1a2233);
+  --rsp-editor-bg: var(--rsp-light, #ffffff) var(--rsp-dark, #1a2233);
 
   /* Lines */
-  --rsp-border: light-dark(#e3e7ee, #2a3346);
-  --rsp-corner-border: light-dark(#d7dce6, #2a3346);
-  --rsp-gridline: light-dark(#e8ebf1, #232c3d);
+  --rsp-border: var(--rsp-light, #e3e7ee) var(--rsp-dark, #2a3346);
+  --rsp-corner-border: var(--rsp-light, #d7dce6) var(--rsp-dark, #2a3346);
+  --rsp-gridline: var(--rsp-light, #e8ebf1) var(--rsp-dark, #232c3d);
 
   /* Text */
-  --rsp-text: light-dark(#101828, #e8ecf4);
-  --rsp-header-text: light-dark(#5a6478, #99a4bb);
-  --rsp-muted-text: light-dark(#6b7280, #8c97ad);
+  --rsp-text: var(--rsp-light, #101828) var(--rsp-dark, #e8ecf4);
+  --rsp-header-text: var(--rsp-light, #5a6478) var(--rsp-dark, #99a4bb);
+  --rsp-muted-text: var(--rsp-light, #6b7280) var(--rsp-dark, #8c97ad);
 
   /* Accent / selection.
      NOTE: `@ricsam/selection-manager` paints the selection *perimeter* as an
@@ -57,25 +117,25 @@
      The default accent stays in that blue family so the perimeter agrees with
      the rest of the chrome out of the box. Overriding `--rsp-accent` with a
      distant hue will make the perimeter read slightly differently. */
-  --rsp-accent: light-dark(#2196f3, #58a6ff);
+  --rsp-accent: var(--rsp-light, #2196f3) var(--rsp-dark, #58a6ff);
   --rsp-accent-contrast: #ffffff;
-  --rsp-selection-bg: light-dark(#e8f2fe, #17304f);
-  --rsp-selection-range-bg: light-dark(#f1f7fe, #14263d);
-  --rsp-hover-bg: light-dark(#f5f7fa, #1c2436);
-  --rsp-focus-ring: light-dark(rgba(33, 150, 243, 0.22), rgba(88, 166, 255, 0.28));
+  --rsp-selection-bg: var(--rsp-light, #e8f2fe) var(--rsp-dark, #17304f);
+  --rsp-selection-range-bg: var(--rsp-light, #f1f7fe) var(--rsp-dark, #14263d);
+  --rsp-hover-bg: var(--rsp-light, #f5f7fa) var(--rsp-dark, #1c2436);
+  --rsp-focus-ring: var(--rsp-light, rgba(33, 150, 243, 0.22)) var(--rsp-dark, rgba(88, 166, 255, 0.28));
 
   /* Danger (delete buttons, invalid input) */
-  --rsp-danger: light-dark(#d92d20, #ff8a80);
-  --rsp-danger-bg: light-dark(#fef3f2, #3a1512);
+  --rsp-danger: var(--rsp-light, #d92d20) var(--rsp-dark, #ff8a80);
+  --rsp-danger-bg: var(--rsp-light, #fef3f2) var(--rsp-dark, #3a1512);
 
   /* Tables (consumed by the workbook's inline cell styles) */
-  --rsp-table-header-bg: light-dark(#2196f3, #1c3a5e);
-  --rsp-table-header-color: light-dark(#ffffff, #e8ecf4);
-  --rsp-table-header-border: light-dark(#1877c9, #2a5384);
-  --rsp-table-even-row-bg: light-dark(#f7f9fc, #161e2e);
-  --rsp-table-odd-row-bg: light-dark(#ffffff, #131a28);
-  --rsp-table-border-color: light-dark(#2196f3, #34405c);
-  --rsp-table-border-light: light-dark(#dfe4ec, #2a3346);
+  --rsp-table-header-bg: var(--rsp-light, #2196f3) var(--rsp-dark, #1c3a5e);
+  --rsp-table-header-color: var(--rsp-light, #ffffff) var(--rsp-dark, #e8ecf4);
+  --rsp-table-header-border: var(--rsp-light, #1877c9) var(--rsp-dark, #2a5384);
+  --rsp-table-even-row-bg: var(--rsp-light, #f7f9fc) var(--rsp-dark, #161e2e);
+  --rsp-table-odd-row-bg: var(--rsp-light, #ffffff) var(--rsp-dark, #131a28);
+  --rsp-table-border-color: var(--rsp-light, #2196f3) var(--rsp-dark, #34405c);
+  --rsp-table-border-light: var(--rsp-light, #dfe4ec) var(--rsp-dark, #2a3346);
 
   /* Typography */
   --rsp-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
@@ -107,7 +167,8 @@
 }
 
 .rsp-root {
-  /* No `color-scheme` here on purpose — see the file header. */
+  /* No `color-scheme` here on purpose: declaring it would override a pin set by
+     an ancestor. See the file header. */
   color: var(--rsp-text);
   font-family: var(--rsp-font-family);
 }

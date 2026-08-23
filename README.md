@@ -102,8 +102,7 @@ you can override them from **any** ancestor of the grid:
 
 ### Light and dark
 
-Colors resolve through `light-dark()`, which follows the inherited
-`color-scheme`. By default the grid follows the user's OS preference.
+By default the grid follows the user's OS preference.
 
 The grid deliberately does **not** declare `color-scheme` on `.rsp-root`, so a
 pin you set on an ancestor is respected. Pin a subtree with plain CSS:
@@ -119,7 +118,16 @@ or with the bundled helper classes:
 <FormulaWorkbook className="rsp-theme-dark" ... />
 ```
 
-Canvas gridlines and every DOM surface follow the same resolved scheme.
+Canvas gridlines and every DOM surface follow the same resolved scheme. The
+component resolves the inherited `color-scheme` and reflects it on the grid root
+as `data-rsp-scheme`, which drives the `--rsp-light` / `--rsp-dark` token
+switches.
+
+> **Note** — the stylesheet intentionally avoids `light-dark()`. Bundlers that
+> target browsers without native support (Vite's Lightning CSS, for example)
+> lower it to switch variables that only exist next to a `color-scheme`
+> declaration, which makes shared-root tokens compute to an invalid value — in
+> production builds only. An equivalent space-toggle is used instead.
 
 ### Cell fills stay readable
 
