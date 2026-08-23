@@ -50,7 +50,10 @@
  * the helper classes. The media query below is the pre-resolution default.
  */
 
-/* Default: follow the OS preference. */
+/* Default: follow the OS preference. `.rsp-root` is included so the grid still
+   themes correctly when the stylesheet is loaded into a shadow root or another
+   tree where `:root` is not an ancestor. Only the two switches are repeated —
+   never the tokens themselves (see below). */
 :root,
 .rsp-root {
   --rsp-light: initial;
@@ -91,8 +94,11 @@
   --rsp-dark: initial;
 }
 
-:root,
-.rsp-root {
+/* Tokens are declared ONLY on `:root`, so a consumer can override any of them
+   from any ancestor of the grid. Repeating this block on `.rsp-root` would let
+   the built-in defaults beat an ancestor's override, because `.rsp-root` is the
+   closer element. */
+:root {
   /* Surfaces */
   --rsp-bg: var(--rsp-light, #ffffff) var(--rsp-dark, #0f1523);
   --rsp-surface: var(--rsp-light, #ffffff) var(--rsp-dark, #151c2c);

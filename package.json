@@ -1,6 +1,6 @@
 {
   "name": "@ricsam/react-spreadsheets",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Headless-friendly React spreadsheet and workbook components: infinite virtualized grid, zoom, resizing, clipboard, fill handles and formula-engine bindings.",
   "type": "module",
   "module": "./dist/mjs/lib.mjs",

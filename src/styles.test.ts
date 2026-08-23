@@ -14,9 +14,17 @@ const css = await Bun.file(new URL("./styles.css", import.meta.url)).text();
  * build. The `--rsp-light` / `--rsp-dark` space toggle avoids that entirely.
  */
 describe("styles.css light/dark strategy", () => {
-  const declarations = css
-    .replace(/\/\*[\s\S]*?\*\//g, "") // strip comments
-    .split("\n");
+  // Comments contain illustrative CSS, so strip them before any structural
+  // assertion or the examples get parsed as real rules.
+  const source = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const declarations = source.split("\n");
+
+  /** Rough rule splitter: `[selector, body]` pairs for non-nested blocks. */
+  const rules = (): Array<{ selector: string; body: string }> =>
+    [...source.matchAll(/(^|\})\s*([^{}]*)\{([^{}]*)\}/g)].map((match) => ({
+      selector: match[2]!.trim(),
+      body: match[3]!,
+    }));
 
   test("does not use light-dark() in any declaration", () => {
     const offenders = declarations.filter((line) => line.includes("light-dark("));
@@ -39,19 +47,28 @@ describe("styles.css light/dark strategy", () => {
   });
 
   test("never declares color-scheme on .rsp-root, which would override a consumer pin", () => {
-    // Isolate the `.rsp-root { ... }` blocks and assert none sets color-scheme.
-    const blocks = [...css.matchAll(/(^|\})\s*([^{}]*\.rsp-root[^{}]*)\{([^}]*)\}/g)];
-    expect(blocks.length).toBeGreaterThan(0);
+    const rspRootRules = rules().filter((rule) => /\.rsp-root/.test(rule.selector));
+    expect(rspRootRules.length).toBeGreaterThan(0);
 
-    const withScheme = blocks
-      .filter(([, , selector, body]) => {
-        // The opt-in helpers are allowed (and required) to pin the scheme.
-        if (/rsp-theme-(light|dark)/.test(selector!)) return false;
-        return /(^|[\s;])color-scheme\s*:/.test(body!);
-      })
-      .map(([, , selector]) => selector!.trim());
+    const withScheme = rspRootRules
+      // The opt-in helpers are allowed (and required) to pin the scheme.
+      .filter((rule) => !/rsp-theme-(light|dark)/.test(rule.selector))
+      .filter((rule) => /(^|[\s;])color-scheme\s*:/.test(rule.body))
+      .map((rule) => rule.selector);
 
     expect(withScheme).toEqual([]);
+  });
+
+  test("declares the themed tokens only on :root, so ancestor overrides win", () => {
+    // Repeating the token block on `.rsp-root` would make the built-in default
+    // beat a consumer override set on an ancestor, because `.rsp-root` is the
+    // closer element. Only the light/dark switches may be repeated there.
+    const offenders = rules()
+      .filter((rule) => /\.rsp-root/.test(rule.selector))
+      .filter((rule) => /--rsp-(?!light\s*:|dark\s*:)[a-z-]+\s*:/.test(rule.body))
+      .map((rule) => rule.selector);
+
+    expect(offenders).toEqual([]);
   });
 
   test("every themed token resolves through the space toggle", () => {
