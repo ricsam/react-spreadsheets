@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ricsam/react-spreadsheets — theme harness</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: light-dark(#f3f4f6, #0a0e17);
+        color: light-dark(#101828, #e8ecf4);
+      }
+      .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; }
+      .pane { border-radius: 12px; overflow: hidden; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15); }
+      .pane h2 { margin: 0; padding: 10px 14px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+      .light { color-scheme: light; background: #fff; }
+      .light h2 { background: #eef1f6; color: #475467; }
+      .dark { color-scheme: dark; background: #0f1523; }
+      .dark h2 { background: #1a2233; color: #99a4bb; }
+      .stage { height: 460px; }
+      @media (max-width: 900px) { .panes { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./index.tsx"></script>
+  </body>
+</html>

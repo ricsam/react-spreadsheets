@@ -88,11 +88,11 @@ top of `FormulaSheet`.
 
 ## Theming
 
-All colors, fonts and sizes are CSS custom properties declared on `.rsp-root`.
-Override them anywhere in your cascade:
+All colors, fonts and sizes are CSS custom properties declared on `:root`, so
+you can override them from **any** ancestor of the grid:
 
 ```css
-.rsp-root {
+.my-panel {
   --rsp-accent: #7c3aed;
   --rsp-bg: #ffffff;
   --rsp-header-bg: #f4f4f5;
@@ -100,9 +100,34 @@ Override them anywhere in your cascade:
 }
 ```
 
-Light and dark are resolved automatically with `light-dark()`. To pin a subtree
-to one mode, set `color-scheme: light` (or `dark`) on `.rsp-root`; canvas
-gridlines follow the same setting.
+### Light and dark
+
+Colors resolve through `light-dark()`, which follows the inherited
+`color-scheme`. By default the grid follows the user's OS preference.
+
+The grid deliberately does **not** declare `color-scheme` on `.rsp-root`, so a
+pin you set on an ancestor is respected. Pin a subtree with plain CSS:
+
+```css
+.workbook-stage { color-scheme: light; } /* always light */
+.workbook-stage { color-scheme: dark; }  /* always dark  */
+```
+
+or with the bundled helper classes:
+
+```tsx
+<FormulaWorkbook className="rsp-theme-dark" ... />
+```
+
+Canvas gridlines and every DOM surface follow the same resolved scheme.
+
+### Cell fills stay readable
+
+A `backgroundColor` coming from your document model is usually a single literal
+color with no dark-mode variant. To stop light fills from pairing with the dark
+theme's near-white text, the grid derives a readable ink for any cell that sets
+a background but no explicit `color`. Set `color` yourself to opt out, and use
+`getContrastingTextColor` if you want the same behaviour elsewhere.
 
 Per-cell styling is done in JS:
 

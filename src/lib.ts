@@ -114,6 +114,11 @@ export { cn } from "./utils/cn";
 export { useResizeObserver } from "./utils/use-resize-observer";
 export { useColorScheme, type ColorScheme } from "./utils/use-color-scheme";
 export { useClickAway } from "./utils/use-click-away";
+export {
+  getContrastingTextColor,
+  parseCssColor,
+  relativeLuminance,
+} from "./utils/contrast-text";
 
 // Overlay frame + viewport types
 export { ViewportStream, type ViewportState, type ResizeHandle } from "./grid/types";

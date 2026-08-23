@@ -17,6 +17,7 @@ import React, {
 } from 'react';
 import { useResizeObserver } from '../utils/use-resize-observer';
 import { useColorScheme } from '../utils/use-color-scheme';
+import { getContrastingTextColor } from '../utils/contrast-text';
 import { cn } from '../utils/cn';
 import { DEFAULT_CELL_HEIGHT, DEFAULT_CELL_WIDTH, HEADER_HEIGHT, HEADER_WIDTH } from './constants';
 
@@ -45,29 +46,57 @@ import {
 /**
  * Resolves the grid line color used for canvas painting.
  *
- * Prefers the `--rsp-gridline` custom property so themes apply to the canvas
- * as well as to the DOM, falling back to the default palette when the value is
- * unset or not directly paintable.
+ * Canvas 2D cannot evaluate CSS, so the themed `--rsp-gridline` value has to be
+ * resolved to a concrete color first. Reading the custom property directly is
+ * not enough: custom properties compute to an unresolved token sequence, so a
+ * `light-dark()` value comes back verbatim and is not paintable.
+ *
+ * Instead we read a real, inherited property (`color`) from a hidden probe
+ * element that declares `color: var(--rsp-gridline)`. The browser resolves
+ * `light-dark()` against the probe's inherited `color-scheme`, which yields a
+ * paintable `rgb(...)` string that always matches what the DOM is showing.
  */
 const resolveGridLineColor = (
-  element: HTMLElement | null,
+  probe: HTMLElement | null,
   colorScheme: 'light' | 'dark'
 ): string => {
-  const fallback = colorScheme === 'dark' ? '#4b5563' : '#e1e5e9';
+  const fallback = colorScheme === 'dark' ? '#232c3d' : '#e8ebf1';
 
-  if (!element || typeof getComputedStyle !== 'function') {
+  if (!probe || typeof getComputedStyle !== 'function') {
     return fallback;
   }
 
-  const declared = getComputedStyle(element).getPropertyValue('--rsp-gridline').trim();
+  const resolved = getComputedStyle(probe).color?.trim();
 
-  // Custom properties are not resolved through `light-dark()` when read this
-  // way, so only accept a value the canvas can actually paint with.
-  if (!declared || declared.includes('light-dark(')) {
+  // A fully transparent result means the probe never received a usable value.
+  if (!resolved || resolved.includes('light-dark(') || resolved === 'rgba(0, 0, 0, 0)') {
     return fallback;
   }
 
-  return declared;
+  return resolved;
+};
+
+/**
+ * Keeps consumer-supplied cell fills readable in both color schemes.
+ *
+ * A custom `backgroundColor` is normally a literal from the document model and
+ * has no dark-mode variant, while the grid's default ink follows the active
+ * scheme. Pairing a light literal fill with the dark theme's near-white text
+ * produces unreadable cells, so when the consumer set a background but no
+ * explicit text color we derive a readable one from that background.
+ */
+const withReadableTextColor = (
+  style: React.CSSProperties | undefined
+): React.CSSProperties | undefined => {
+  if (!style?.backgroundColor || style.color) return style;
+
+  const background = style.backgroundColor;
+  if (typeof background !== 'string') return style;
+
+  const color = getContrastingTextColor(background);
+  if (!color) return style;
+
+  return { ...style, color };
 };
 
 const hasBorderStyle = (style?: React.CSSProperties): boolean =>
@@ -142,7 +171,7 @@ const CellComponent = React.memo(
       isSelected: isSelected,
       isBeingEdited: isBeingEdited || false
     };
-    const customStyle = customCellStyle?.(cellStyleCallbackData);
+    const customStyle = withReadableTextColor(customCellStyle?.(cellStyleCallbackData));
 
     const canHaveFillHandle = useSelectionManager(selectionManager, () => {
       return selectionManager.canCellHaveFillHandle({
@@ -182,7 +211,13 @@ const CellComponent = React.memo(
           top: y,
           width: getColumnWidth(col) - 1,
           height: getRowHeight(row) - 1,
-          ...customStyle
+          ...customStyle,
+          // While editing, the cell must present the plain editor surface. The
+          // custom style is applied inline and would otherwise outrank the
+          // stylesheet, leaving the typed text on a conditional fill.
+          ...(isBeingEdited
+            ? { backgroundColor: undefined, color: undefined }
+            : null)
         }}
       >
         {isBeingEdited ? (
@@ -663,6 +698,9 @@ export const Spreadsheet = forwardRef<
     // Resolved from the mounted element so a consumer can pin a subtree to
     // light or dark via `color-scheme` and have canvas gridlines follow.
     const colorScheme = useColorScheme(containerDivRef);
+    // Hidden element used to read the browser-resolved `--rsp-gridline` color
+    // for canvas painting (see `resolveGridLineColor`).
+    const gridLineProbeRef = useRef<HTMLSpanElement | null>(null);
 
     const selectionManager = useInitializeSelectionManager({
       getNumCols: () => ({ type: 'infinity' }),
@@ -942,11 +980,9 @@ export const Spreadsheet = forwardRef<
       if (!ctx) return;
 
       ctx.clearRect(0, 0, width, height);
-      // Canvas 2D can't use CSS `light-dark()`, so pick the grid line color
-      // based on the app's current color scheme.
-      // Canvas 2D cannot resolve `light-dark()`, so read the themeable custom
-      // property when available and fall back to the built-in palette.
-      ctx.strokeStyle = resolveGridLineColor(canvasRef.current, colorScheme);
+      // Canvas 2D cannot evaluate CSS, so read the resolved gridline color from
+      // a hidden probe element that the browser has already themed for us.
+      ctx.strokeStyle = resolveGridLineColor(gridLineProbeRef.current, colorScheme);
       ctx.lineWidth = 1;
 
       // Draw vertical grid lines using custom column widths
@@ -2039,6 +2075,21 @@ export const Spreadsheet = forwardRef<
               }}
               tabIndex={0}
             >
+              {/* Resolves the themed gridline color for the canvas. Kept in the
+                  DOM (not `display: none`) so the value stays computable. */}
+              <span
+                ref={gridLineProbeRef}
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  width: 0,
+                  height: 0,
+                  visibility: 'hidden',
+                  pointerEvents: 'none',
+                  color: 'var(--rsp-gridline)'
+                }}
+              />
+
               <canvas
                 ref={canvasRef}
                 className="rsp-canvas"
