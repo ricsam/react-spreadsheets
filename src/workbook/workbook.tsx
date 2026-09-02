@@ -611,32 +611,37 @@ export function FormulaSheet({
             });
 
             if (!tableInfo) {
-              // Not in a table, just apply conditional styling if any
-              if (conditionalStyle) {
-                return {
-                  ...(conditionalStyle.backgroundColor && {
-                    backgroundColor: conditionalStyle.backgroundColor
-                  }),
-                  ...(conditionalStyle.color && {
-                    color: conditionalStyle.color
-                  }),
-                  ...(conditionalStyle.fontSize && {
-                    fontSize: conditionalStyle.fontSize
-                  }),
-                  ...(conditionalStyle.bold && {
-                    fontWeight: 'bold' as const
-                  }),
-                  ...(conditionalStyle.italic && {
-                    fontStyle: 'italic' as const
-                  }),
-                  ...(conditionalStyle.underline && {
-                    textDecoration: 'underline'
-                  }),
-                  ...getBorderCellStyle(conditionalStyle),
-                  ...getWrapCellStyle(conditionalStyle)
-                };
-              }
-              return {};
+              // Not in a table, apply the engine style first and always give the
+              // consumer a chance to augment it. Reference highlights, search
+              // results and other transient decorations commonly target plain
+              // cells, so limiting this callback to table cells makes the API
+              // ineffective for those use cases.
+              const style: React.CSSProperties = conditionalStyle
+                ? {
+                    ...(conditionalStyle.backgroundColor && {
+                      backgroundColor: conditionalStyle.backgroundColor
+                    }),
+                    ...(conditionalStyle.color && {
+                      color: conditionalStyle.color
+                    }),
+                    ...(conditionalStyle.fontSize && {
+                      fontSize: conditionalStyle.fontSize
+                    }),
+                    ...(conditionalStyle.bold && {
+                      fontWeight: 'bold' as const
+                    }),
+                    ...(conditionalStyle.italic && {
+                      fontStyle: 'italic' as const
+                    }),
+                    ...(conditionalStyle.underline && {
+                      textDecoration: 'underline'
+                    }),
+                    ...getBorderCellStyle(conditionalStyle),
+                    ...getWrapCellStyle(conditionalStyle)
+                  }
+                : {};
+
+              return customCellStyle ? customCellStyle(cell, style) : style;
             }
 
             const isHeaderRow = cell.rowIndex === tableInfo.start.rowIndex;

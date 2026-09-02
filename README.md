@@ -86,6 +86,58 @@ export function Demo() {
 `FormulaWorkbook` adds Excel-style sheet tabs, renaming, deletion and zoom on
 top of `FormulaSheet`.
 
+### Formula reference highlights
+
+Keep editor-driven reference highlights separate from the user's spreadsheet
+selection. `FormulaSheet` calls `customCellStyle` with both the cell and its
+engine-provided style, so a host can add a transient range fill and perimeter
+without replacing table or conditional formatting:
+
+```tsx
+type Highlight = {
+  start: { rowIndex: number; colIndex: number };
+  end: { rowIndex: number; colIndex: number };
+};
+
+function ReferenceAwareSheet({ highlight }: { highlight?: Highlight }) {
+  return (
+    <FormulaSheet
+      engine={engine}
+      workbookName="Workbook1"
+      sheetName="Sheet1"
+      style={{ height: 480 }}
+      customCellStyle={(cell, internalStyle) => {
+        if (
+          !highlight ||
+          cell.rowIndex < highlight.start.rowIndex ||
+          cell.rowIndex > highlight.end.rowIndex ||
+          cell.colIndex < highlight.start.colIndex ||
+          cell.colIndex > highlight.end.colIndex
+        ) {
+          return internalStyle;
+        }
+
+        const color = "#7c3aed";
+        return {
+          ...internalStyle,
+          backgroundColor: "rgb(124 58 237 / 14%)",
+          ...(cell.rowIndex === highlight.start.rowIndex && { borderTopColor: color }),
+          ...(cell.rowIndex === highlight.end.rowIndex && { borderBottomColor: color }),
+          ...(cell.colIndex === highlight.start.colIndex && { borderLeftColor: color }),
+          ...(cell.colIndex === highlight.end.colIndex && { borderRightColor: color }),
+        };
+      }}
+    />
+  );
+}
+```
+
+Update `highlight` from the formula editor's caret/reference analysis. Clearing
+it removes the decoration, while the selection manager continues to own mouse,
+keyboard and edit selection state independently. For `FormulaWorkbook`, pass a
+controlled `activeSheet` if the editor should reveal a reference on another
+sheet; the same `customCellStyle` prop is forwarded to its active sheet.
+
 ## Theming
 
 All colors, fonts and sizes are CSS custom properties. The package only ever
