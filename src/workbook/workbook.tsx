@@ -11,7 +11,13 @@ import {
   type RangeAddress
 } from '@ricsam/formula-engine';
 
-import type { SelectionManager, SMArea } from '@ricsam/selection-manager';
+import type {
+  SelectionManager,
+  SelectionNavigationModel,
+  SMCell,
+  SMArea,
+  SMTable
+} from '@ricsam/selection-manager';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Spreadsheet, type SpreadsheetProps } from '../spreadsheet/spreadsheet';
 import type {
@@ -367,6 +373,55 @@ export function FormulaSheet({
 
   const sheet = state.workbooks.get(workbookName)?.sheets.get(sheetName);
 
+  const getEngineTableAt = useCallback(
+    (cell: SMCell): SMTable | undefined => {
+      const table = engine.isCellInTable({
+        workbookName,
+        sheetName,
+        rowIndex: cell.row,
+        colIndex: cell.col
+      });
+      if (!table) return undefined;
+
+      const endRow =
+        table.endRow.type === 'number'
+          ? { type: 'number' as const, value: table.endRow.value }
+          : { type: 'infinity' as const };
+      const endCol = {
+        type: 'number' as const,
+        value: table.start.colIndex + table.headers.size - 1
+      };
+      const hasDataRows = endRow.type === 'infinity' || endRow.value > table.start.rowIndex;
+
+      return {
+        id: `${table.workbookName}/${table.name}`,
+        bounds: {
+          start: { row: table.start.rowIndex, col: table.start.colIndex },
+          end: { row: endRow, col: endCol }
+        },
+        ...(hasDataRows
+          ? {
+              dataBounds: {
+                start: {
+                  row: table.start.rowIndex + 1,
+                  col: table.start.colIndex
+                },
+                end: { row: endRow, col: endCol }
+              }
+            }
+          : {})
+      };
+    },
+    [engine, sheetName, workbookName]
+  );
+  const formulaNavigation = useMemo<SelectionNavigationModel>(
+    () => ({
+      ...selection?.navigation,
+      getTableAt: selection?.navigation?.getTableAt ?? getEngineTableAt
+    }),
+    [getEngineTableAt, selection?.navigation]
+  );
+
   // Handle cell data changes from the spreadsheet
   const onCellDataChange = useCallback(
     (updatedSpreadsheet: Map<string, SerializedCellValue>) => {
@@ -585,6 +640,7 @@ export function FormulaSheet({
           parentSelected={isSelected}
           selection={{
             ...selection,
+            navigation: formulaNavigation,
             effects: selectionManagerEffects
           }}
           containerProps={

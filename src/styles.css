@@ -150,6 +150,7 @@
   --_rsp-accent-contrast: var(--rsp-accent-contrast, #ffffff);
   --_rsp-selection-bg: var(--rsp-selection-bg, var(--rsp-light, #e8f2fe) var(--rsp-dark, #17304f));
   --_rsp-selection-range-bg: var(--rsp-selection-range-bg, var(--rsp-light, #f1f7fe) var(--rsp-dark, #14263d));
+  --_rsp-reference-accent: var(--rsp-reference-accent, var(--rsp-light, #f97316) var(--rsp-dark, #fb923c));
   --_rsp-hover-bg: var(--rsp-hover-bg, var(--rsp-light, #f5f7fa) var(--rsp-dark, #1c2436));
   --_rsp-focus-ring: var(--rsp-focus-ring, var(--rsp-light, rgba(33, 150, 243, 0.22)) var(--rsp-dark, rgba(88, 166, 255, 0.28)));
 
@@ -274,6 +275,41 @@
    neighbouring cells. */
 .rsp-cell.rsp-cell-selected {
   z-index: 2;
+}
+
+/* Formula references are not primary selections. They live in one independent
+   overlay so table fills, conditional styles and the selected-cell perimeter
+   remain untouched. Four animated gradients create Excel-like marching ants. */
+.rsp-reference-selection {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  background-image:
+    linear-gradient(90deg, var(--_rsp-reference-accent) 50%, transparent 50%),
+    linear-gradient(90deg, var(--_rsp-reference-accent) 50%, transparent 50%),
+    linear-gradient(0deg, var(--_rsp-reference-accent) 50%, transparent 50%),
+    linear-gradient(0deg, var(--_rsp-reference-accent) 50%, transparent 50%);
+  background-position: 0 0, 0 100%, 0 0, 100% 0;
+  background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
+  background-size: 8px 2px, 8px 2px, 2px 8px, 2px 8px;
+  filter: drop-shadow(0 0 1px var(--_rsp-bg));
+  animation: rsp-reference-marching-ants 480ms linear infinite;
+}
+
+.rsp-reference-selection-selecting {
+  opacity: 0.9;
+}
+
+@keyframes rsp-reference-marching-ants {
+  to {
+    background-position: 8px 0, -8px 100%, 0 -8px, 100% 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rsp-reference-selection {
+    animation: none;
+  }
 }
 
 /* The editor surface must win over the selection tint above (equal specificity

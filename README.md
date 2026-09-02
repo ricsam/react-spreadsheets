@@ -138,6 +138,68 @@ keyboard and edit selection state independently. For `FormulaWorkbook`, pass a
 controlled `activeSheet` if the editor should reveal a reference on another
 sheet; the same `customCellStyle` prop is forwarded to its active sheet.
 
+For the range currently being inserted into a formula, use selection-manager's
+reference-picking mode instead. It preserves the primary/editing selection and
+the grid renders the picked range with an independent animated border:
+
+```tsx
+<Spreadsheet
+  rowCount={1_000}
+  columnCount={50}
+  selection={{
+    effects(manager) {
+      const stop = manager.listenToReferenceSelection((event) => {
+        if (event.phase === "start" || event.phase === "change") {
+          updateFormulaReference(event.range);
+        }
+      });
+
+      manager.beginReferenceSelection({
+        editedRange: {
+          start: { row: 1, col: 3 },
+          end: {
+            row: { type: "number", value: 1 },
+            col: { type: "number", value: 3 },
+          },
+        },
+      });
+      return () => {
+        stop();
+        manager.endReferenceSelection();
+      };
+    },
+  }}
+/>
+```
+
+### Data-aware keyboard navigation
+
+`Cmd/Ctrl + Arrow` jumps through populated cells and reveals the destination;
+adding Shift extends the primary selection. Plain `Spreadsheet` derives its
+used range and jump targets from non-empty `cellData`. `FormulaSheet` also
+supplies table bounds from the formula engine, so navigation inside a table
+respects its data body.
+
+Override any part of that behavior through `selection.navigation`:
+
+```tsx
+<Spreadsheet
+  rowCount={100_000}
+  columnCount={200}
+  selection={{
+    navigation: {
+      getUsedRange: () => model.usedRange,
+      getTableAt: (cell) => model.tableAt(cell),
+      resolveTarget: (request) => model.resolveJump(request),
+    },
+  }}
+/>
+```
+
+The imperative `SpreadsheetRef.scrollToCell({ row, col }, { align })` reveals a
+cell without changing selection. Alignment is `"nearest"` by default, with
+`"start"` and `"end"` available for explicit positioning.
+
 ## Theming
 
 All colors, fonts and sizes are CSS custom properties. The package only ever
@@ -227,11 +289,12 @@ Per-cell styling is done in JS:
 | --- | --- |
 | `cellData` | `Map<string, SerializedCellValue>` keyed by A1 reference. Omit for uncontrolled mode. |
 | `onCellDataChange` | Called with the next map after an edit, paste or fill. |
+| `rowCount` / `columnCount` | Finite grid dimensions. Omit either dimension for an unbounded axis. |
 | `columnWidths` / `rowHeights` | Controlled sizing, keyed by column letter / 1-based row. |
 | `customCellStyle` | Per-cell `CSSProperties`. |
 | `customCellRenderer` | Per-cell React node. |
 | `parseValue` | Coerce raw editor strings (e.g. text → number) before storing. |
-| `selection` | Selection state, callbacks and `effects(selectionManager)` for copy/paste/fill hooks. |
+| `selection` | Selection state, navigation model, and `effects(selectionManager)` for copy/paste/fill/reference hooks. |
 | `components` + `overlayChildren` | Floating overlays anchored to the grid, optionally snapped to cell edges. |
 
 ## Development

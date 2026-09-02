@@ -1,7 +1,11 @@
 import {
   type Format,
+  type MaybeInfNumber,
+  type NavigationRequest,
   SelectionManager,
+  type SelectionNavigationModel,
   type SelectionManagerState,
+  type SMCell,
   useInitializeSelectionManager,
   useSelectionManager
 } from '@ricsam/selection-manager';
@@ -33,8 +37,10 @@ import { ViewportStream } from '../grid/types';
 import { columnToIndex, getRowNumber, indexToColumn, parseCellReference, rowToLetter } from './utils';
 import { CONTROLLED_ZOOM_FACTOR, MAX_ZOOM, MIN_ZOOM, ZOOM_FACTOR } from './zoom-constants';
 import {
+  getColumnEdgePosition,
   getCellSnapAnchorFromRect,
   getRectFromCellSnapAnchor,
+  getRowEdgePosition,
   moveCellSnapAnchorToNearestOrigin,
   normalizeCellSnapAnchor,
   resizeCellSnapAnchorToNearestEdges,
@@ -107,6 +113,134 @@ const hasBorderStyle = (style?: React.CSSProperties): boolean =>
       style?.borderBottomColor ||
       style?.borderLeftColor
   );
+
+const normalizeFiniteCount = (count: number | undefined): number | undefined => {
+  if (count === undefined || count === Infinity) return undefined;
+  if (!Number.isFinite(count)) return 0;
+  return Math.max(0, Math.floor(count));
+};
+
+const countToSelectionBound = (count: number | undefined): MaybeInfNumber =>
+  count === undefined ? { type: 'infinity' } : { type: 'number', value: count };
+
+const alignScrollOffset = (
+  current: number,
+  itemStart: number,
+  itemEnd: number,
+  viewportSize: number,
+  align: SpreadsheetScrollAlignment
+): number => {
+  if (viewportSize <= 0) return current;
+  if (align === 'start') return itemStart;
+  if (align === 'end') return itemEnd - viewportSize;
+  if (itemStart < current) return itemStart;
+  if (itemEnd > current + viewportSize) return itemEnd - viewportSize;
+  return current;
+};
+
+const hasCellData = (value: SerializedCellValue): boolean => value !== undefined && value !== '';
+
+const getSparseUsedRange = (
+  cellData: Map<string, SerializedCellValue>,
+  rowCount?: number,
+  columnCount?: number
+) => {
+  let minRow = Infinity;
+  let maxRow = -1;
+  let minCol = Infinity;
+  let maxCol = -1;
+
+  for (const [reference, value] of cellData) {
+    if (!hasCellData(value)) continue;
+
+    let rowIndex: number;
+    let columnIndex: number;
+    try {
+      ({ rowIndex, columnIndex } = parseCellReference(reference));
+    } catch {
+      continue;
+    }
+
+    if (
+      rowIndex < 0 ||
+      columnIndex < 0 ||
+      (rowCount !== undefined && rowIndex >= rowCount) ||
+      (columnCount !== undefined && columnIndex >= columnCount)
+    ) {
+      continue;
+    }
+
+    minRow = Math.min(minRow, rowIndex);
+    maxRow = Math.max(maxRow, rowIndex);
+    minCol = Math.min(minCol, columnIndex);
+    maxCol = Math.max(maxCol, columnIndex);
+  }
+
+  if (maxRow < 0 || maxCol < 0) return undefined;
+
+  return {
+    start: { row: minRow, col: minCol },
+    end: {
+      row: { type: 'number' as const, value: maxRow },
+      col: { type: 'number' as const, value: maxCol }
+    }
+  };
+};
+
+/**
+ * Excel-style sparse jump navigation along the active row or column.
+ * Tables remain authoritative and are handled by SelectionManager's fallback.
+ */
+const resolveSparseNavigationTarget = (
+  request: NavigationRequest,
+  cellData: Map<string, SerializedCellValue>
+): SMCell | undefined => {
+  if (request.kind !== 'jump' || request.table) return undefined;
+
+  const isVertical = request.direction === 'up' || request.direction === 'down';
+  const movingForward = request.direction === 'down' || request.direction === 'right';
+  const originAxis = isVertical ? request.origin.row : request.origin.col;
+  const fixedAxis = isVertical ? request.origin.col : request.origin.row;
+  const occupied = new Set<number>();
+
+  for (const [reference, value] of cellData) {
+    if (!hasCellData(value)) continue;
+
+    let rowIndex: number;
+    let columnIndex: number;
+    try {
+      ({ rowIndex, columnIndex } = parseCellReference(reference));
+    } catch {
+      continue;
+    }
+
+    if ((isVertical ? columnIndex : rowIndex) === fixedAxis) {
+      occupied.add(isVertical ? rowIndex : columnIndex);
+    }
+  }
+
+  const step = movingForward ? 1 : -1;
+  let targetAxis: number | undefined;
+
+  // When the adjacent cell contains data, jump to the end of that contiguous run.
+  if (occupied.has(originAxis + step)) {
+    targetAxis = originAxis + step;
+    while (occupied.has(targetAxis + step)) targetAxis += step;
+  } else {
+    // Otherwise jump across the blank region to the next populated cell.
+    const candidates = [...occupied].filter((index) =>
+      movingForward ? index > originAxis : index < originAxis
+    );
+    if (candidates.length > 0) {
+      targetAxis = movingForward ? Math.min(...candidates) : Math.max(...candidates);
+    }
+  }
+
+  if (targetAxis === undefined) return undefined;
+  return isVertical
+    ? { row: targetAxis, col: request.origin.col }
+    : { row: request.origin.row, col: targetAxis };
+};
 
 // Cell component with callback ref for optimal performance
 const CellComponent = React.memo(
@@ -564,6 +698,10 @@ export interface SpreadsheetProps {
   cellData?: Map<string, SerializedCellValue>;
   onCellDataChange?: (data: Map<string, SerializedCellValue>) => void;
   onCellDataChangeError?: (error: unknown) => void;
+  /** Finite number of rows. Omit for an unbounded sheet. */
+  rowCount?: number;
+  /** Finite number of columns. Omit for an unbounded sheet. */
+  columnCount?: number;
   columnWidths?: SpreadsheetColumnWidths;
   onColumnWidthsChange?: (columnWidths: SpreadsheetColumnWidths) => void;
   rowHeights?: SpreadsheetRowHeights;
@@ -591,6 +729,8 @@ export interface SpreadsheetProps {
     onStateChange?: (state: SelectionManagerState) => void;
     effects?: (selectionManager: SelectionManager) => (() => void) | void;
     formats?: Format[];
+    /** Data- and table-aware keyboard navigation hooks. */
+    navigation?: SelectionNavigationModel;
   };
 
   // Overlay component props
@@ -624,10 +764,21 @@ interface GridDimensions {
   headerHeight: number;
 }
 
+export type SpreadsheetScrollAlignment = 'nearest' | 'start' | 'end';
+
+export interface SpreadsheetScrollToCellOptions {
+  align?: SpreadsheetScrollAlignment;
+}
+
 // Ref interface for imperative methods
 export interface SpreadsheetRef {
   focus: () => void;
   blur: () => void;
+  /** Reveal a zero-based cell without changing the selection. */
+  scrollToCell: (
+    cell: SMCell,
+    options?: SpreadsheetScrollToCellOptions
+  ) => void;
 }
 
 class SpreadsheetClipboardManager extends ClipboardUtils {
@@ -674,6 +825,8 @@ export const Spreadsheet = forwardRef<
       cellData: controlledCellData,
       onCellDataChange,
       onCellDataChangeError,
+      rowCount,
+      columnCount,
       columnWidths: controlledColumnWidths,
       onColumnWidthsChange,
       rowHeights: controlledRowHeights,
@@ -702,24 +855,6 @@ export const Spreadsheet = forwardRef<
     // for canvas painting (see `resolveGridLineColor`).
     const gridLineProbeRef = useRef<HTMLSpanElement | null>(null);
 
-    const selectionManager = useInitializeSelectionManager({
-      getNumCols: () => ({ type: 'infinity' }),
-      getNumRows: () => ({ type: 'infinity' }),
-      initialState: selection?.initialState,
-      state: selection?.state,
-      onStateChange: selection?.onStateChange,
-      containerElement: containerDivRef,
-      formats: selection?.formats,
-      disableAutoClipboard: true
-    });
-
-    const effects = selection?.effects;
-    useEffect(() => {
-      if (effects) {
-        return effects(selectionManager);
-      }
-    }, [selectionManager, effects]);
-
     // State management
     const [internalCellData, setInternalCellData] = useState<Map<string, SerializedCellValue>>(new Map());
     const [retryingEdit, setRetryingEdit] = useState<{
@@ -734,6 +869,64 @@ export const Spreadsheet = forwardRef<
 
     const cellDataRef = useRef(cellData);
     cellDataRef.current = cellData;
+
+    const finiteRowCount = normalizeFiniteCount(rowCount);
+    const finiteColumnCount = normalizeFiniteCount(columnCount);
+    const gridCountsRef = useRef({ rows: finiteRowCount, columns: finiteColumnCount });
+    gridCountsRef.current = { rows: finiteRowCount, columns: finiteColumnCount };
+
+    const getNumRows = useCallback(
+      () => countToSelectionBound(gridCountsRef.current.rows),
+      []
+    );
+    const getNumCols = useCallback(
+      () => countToSelectionBound(gridCountsRef.current.columns),
+      []
+    );
+    const getDefaultUsedRange = useCallback(
+      () =>
+        getSparseUsedRange(
+          cellDataRef.current,
+          gridCountsRef.current.rows,
+          gridCountsRef.current.columns
+        ),
+      []
+    );
+    const defaultResolveTarget = useCallback(
+      (request: NavigationRequest) =>
+        resolveSparseNavigationTarget(request, cellDataRef.current),
+      []
+    );
+    const consumerNavigation = selection?.navigation;
+    const navigation = useMemo<SelectionNavigationModel>(
+      () => ({
+        getUsedRange: consumerNavigation?.getUsedRange ?? getDefaultUsedRange,
+        ...(consumerNavigation?.getTableAt
+          ? { getTableAt: consumerNavigation.getTableAt }
+          : {}),
+        resolveTarget: consumerNavigation?.resolveTarget ?? defaultResolveTarget
+      }),
+      [consumerNavigation, defaultResolveTarget, getDefaultUsedRange]
+    );
+
+    const selectionManager = useInitializeSelectionManager({
+      getNumCols,
+      getNumRows,
+      initialState: selection?.initialState,
+      state: selection?.state,
+      onStateChange: selection?.onStateChange,
+      containerElement: containerDivRef,
+      formats: selection?.formats,
+      navigation,
+      disableAutoClipboard: true
+    });
+
+    const effects = selection?.effects;
+    useEffect(() => {
+      if (effects) {
+        return effects(selectionManager);
+      }
+    }, [selectionManager, effects]);
 
     const isControlled = controlledCellData !== undefined;
     const prevIsControlledRef = useRef(isControlled);
@@ -990,7 +1183,10 @@ export const Spreadsheet = forwardRef<
       let colIndex = 0;
 
       // Skip columns before viewport
-      while (x < viewport.scrollX + gridDims.headerWidth) {
+      while (
+        x < viewport.scrollX + gridDims.headerWidth &&
+        (finiteColumnCount === undefined || colIndex < finiteColumnCount)
+      ) {
         const colWidth = (columnWidths.get(indexToColumn(colIndex)) || DEFAULT_CELL_WIDTH) * viewport.zoom;
         if (x + colWidth > viewport.scrollX + gridDims.headerWidth) {
           break;
@@ -1000,7 +1196,10 @@ export const Spreadsheet = forwardRef<
       }
 
       // Draw visible columns
-      while (x - viewport.scrollX < width) {
+      while (
+        x - viewport.scrollX < width &&
+        (finiteColumnCount === undefined || colIndex < finiteColumnCount)
+      ) {
         const drawX = x - viewport.scrollX;
         if (drawX >= gridDims.headerWidth && drawX <= width) {
           ctx.beginPath();
@@ -1018,7 +1217,10 @@ export const Spreadsheet = forwardRef<
       let rowNum = 1;
 
       // Skip rows before viewport
-      while (y < viewport.scrollY + gridDims.headerHeight) {
+      while (
+        y < viewport.scrollY + gridDims.headerHeight &&
+        (finiteRowCount === undefined || rowNum <= finiteRowCount)
+      ) {
         const rowHeight = (rowHeights.get(rowNum) || DEFAULT_CELL_HEIGHT) * viewport.zoom;
         if (y + rowHeight > viewport.scrollY + gridDims.headerHeight) {
           break;
@@ -1028,7 +1230,10 @@ export const Spreadsheet = forwardRef<
       }
 
       // Draw visible rows
-      while (y - viewport.scrollY < height) {
+      while (
+        y - viewport.scrollY < height &&
+        (finiteRowCount === undefined || rowNum <= finiteRowCount)
+      ) {
         const drawY = y - viewport.scrollY;
         if (drawY >= gridDims.headerHeight && drawY <= height) {
           ctx.beginPath();
@@ -1042,6 +1247,8 @@ export const Spreadsheet = forwardRef<
       }
     }, [
       columnWidths,
+      finiteColumnCount,
+      finiteRowCount,
       gridDims.headerHeight,
       gridDims.headerWidth,
       height,
@@ -1063,7 +1270,10 @@ export const Spreadsheet = forwardRef<
       // Find first visible column
       let x = 0;
       let startCol = 0;
-      while (x < viewport.scrollX) {
+      while (
+        x < viewport.scrollX &&
+        (finiteColumnCount === undefined || startCol < finiteColumnCount)
+      ) {
         const colWidth = (columnWidths.get(indexToColumn(startCol)) || DEFAULT_CELL_WIDTH) * viewport.zoom;
         if (x + colWidth > viewport.scrollX) {
           break;
@@ -1075,7 +1285,10 @@ export const Spreadsheet = forwardRef<
       // Find first visible row
       let y = 0;
       let startRow = 0;
-      while (y < viewport.scrollY) {
+      while (
+        y < viewport.scrollY &&
+        (finiteRowCount === undefined || startRow < finiteRowCount)
+      ) {
         const rowHeight = (rowHeights.get(startRow + 1) || DEFAULT_CELL_HEIGHT) * viewport.zoom;
         if (y + rowHeight > viewport.scrollY) {
           break;
@@ -1087,10 +1300,16 @@ export const Spreadsheet = forwardRef<
       // Collect visible cells
       let rowY = y;
       let row = startRow;
-      while (rowY < viewport.scrollY + height) {
+      while (
+        rowY < viewport.scrollY + height &&
+        (finiteRowCount === undefined || row < finiteRowCount)
+      ) {
         let colX = x;
         let col = startCol;
-        while (colX < viewport.scrollX + width) {
+        while (
+          colX < viewport.scrollX + width &&
+          (finiteColumnCount === undefined || col < finiteColumnCount)
+        ) {
           const colKey = indexToColumn(col);
           const rowNum = getRowNumber(row);
           const cellKey = `${colKey}${rowNum}`;
@@ -1112,6 +1331,8 @@ export const Spreadsheet = forwardRef<
     }, [
       cellData,
       columnWidths,
+      finiteColumnCount,
+      finiteRowCount,
       height,
       rowHeights,
       viewport.scrollX,
@@ -1159,6 +1380,134 @@ export const Spreadsheet = forwardRef<
       },
       [columnWidths, rowHeights]
     );
+
+    const clampViewportOffsets = useCallback(
+      (scrollX: number, scrollY: number, zoom: number) => {
+        const bodyWidth = Math.max(0, width - HEADER_WIDTH * zoom);
+        const bodyHeight = Math.max(0, height - HEADER_HEIGHT * zoom);
+        const maxScrollX =
+          finiteColumnCount === undefined
+            ? Infinity
+            : Math.max(
+                0,
+                getColumnEdgePosition(finiteColumnCount, columnWidths) * zoom - bodyWidth
+              );
+        const maxScrollY =
+          finiteRowCount === undefined
+            ? Infinity
+            : Math.max(
+                0,
+                getRowEdgePosition(finiteRowCount, rowHeights) * zoom - bodyHeight
+              );
+
+        return {
+          scrollX: Math.min(Math.max(0, scrollX), maxScrollX),
+          scrollY: Math.min(Math.max(0, scrollY), maxScrollY)
+        };
+      },
+      [columnWidths, finiteColumnCount, finiteRowCount, height, rowHeights, width]
+    );
+
+    const revealCell = useCallback(
+      (
+        cell: SMCell,
+        options: {
+          rowAlign?: SpreadsheetScrollAlignment;
+          columnAlign?: SpreadsheetScrollAlignment;
+        } = {}
+      ) => {
+        if (finiteRowCount === 0 || finiteColumnCount === 0) return;
+        if (!Number.isFinite(cell.row) || !Number.isFinite(cell.col)) return;
+
+        const requestedRow = Math.max(0, Math.floor(cell.row));
+        const requestedCol = Math.max(0, Math.floor(cell.col));
+        const row =
+          finiteRowCount === undefined
+            ? requestedRow
+            : Math.min(requestedRow, finiteRowCount - 1);
+        const col =
+          finiteColumnCount === undefined
+            ? requestedCol
+            : Math.min(requestedCol, finiteColumnCount - 1);
+
+        setViewport((previous) => {
+          const bodyWidth = Math.max(0, width - HEADER_WIDTH * previous.zoom);
+          const bodyHeight = Math.max(0, height - HEADER_HEIGHT * previous.zoom);
+          const left = getColumnEdgePosition(col, columnWidths) * previous.zoom;
+          const right = getColumnEdgePosition(col + 1, columnWidths) * previous.zoom;
+          const top = getRowEdgePosition(row, rowHeights) * previous.zoom;
+          const bottom = getRowEdgePosition(row + 1, rowHeights) * previous.zoom;
+          const desired = clampViewportOffsets(
+            alignScrollOffset(
+              previous.scrollX,
+              left,
+              right,
+              bodyWidth,
+              options.columnAlign ?? 'nearest'
+            ),
+            alignScrollOffset(
+              previous.scrollY,
+              top,
+              bottom,
+              bodyHeight,
+              options.rowAlign ?? 'nearest'
+            ),
+            previous.zoom
+          );
+
+          if (
+            desired.scrollX === previous.scrollX &&
+            desired.scrollY === previous.scrollY
+          ) {
+            return previous;
+          }
+          return { ...previous, ...desired };
+        });
+      },
+      [
+        clampViewportOffsets,
+        columnWidths,
+        finiteColumnCount,
+        finiteRowCount,
+        height,
+        rowHeights,
+        width
+      ]
+    );
+
+    const scrollToCell = useCallback(
+      (cell: SMCell, options: SpreadsheetScrollToCellOptions = {}) => {
+        const align = options.align ?? 'nearest';
+        revealCell(cell, { rowAlign: align, columnAlign: align });
+      },
+      [revealCell]
+    );
+
+    useEffect(
+      () =>
+        selectionManager.listenToViewportRequest((request) => {
+          const isVertical = request.direction === 'up' || request.direction === 'down';
+          revealCell(request.cell, {
+            rowAlign: isVertical ? request.align : 'nearest',
+            columnAlign: isVertical ? 'nearest' : request.align
+          });
+        }),
+      [revealCell, selectionManager]
+    );
+
+    // Keep an existing viewport valid when finite dimensions or custom sizes shrink.
+    useEffect(() => {
+      setViewport((previous) => {
+        const next = clampViewportOffsets(
+          previous.scrollX,
+          previous.scrollY,
+          previous.zoom
+        );
+        return next.scrollX === previous.scrollX && next.scrollY === previous.scrollY
+          ? previous
+          : { ...previous, ...next };
+      });
+    }, [clampViewportOffsets]);
 
     React.useEffect(() => {
       return selectionManager.listenToUpdateData((updates) => {
@@ -1243,17 +1592,23 @@ export const Spreadsheet = forwardRef<
     }, [selectionManager, clipboardManager, disableClipboard]);
 
     // Handle wheel events (scroll only, zoom disabled)
-    const handleWheel = useCallback((e: WheelEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+    const handleWheel = useCallback(
+      (e: WheelEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
 
-      // Always scroll, ignore zoom
-      setViewport((prev) => ({
-        ...prev,
-        scrollX: Math.max(0, prev.scrollX + e.deltaX),
-        scrollY: Math.max(0, prev.scrollY + e.deltaY)
-      }));
-    }, []);
+        // Always scroll, ignore zoom.
+        setViewport((previous) => ({
+          ...previous,
+          ...clampViewportOffsets(
+            previous.scrollX + e.deltaX,
+            previous.scrollY + e.deltaY,
+            previous.zoom
+          )
+        }));
+      },
+      [clampViewportOffsets]
+    );
 
     // Overlay interaction handlers
     const commitOverlayChildren = useCallback(
@@ -1906,7 +2261,10 @@ export const Spreadsheet = forwardRef<
       let startCol = 0;
 
       // Find the first visible column
-      while (x < viewport.scrollX) {
+      while (
+        x < viewport.scrollX &&
+        (finiteColumnCount === undefined || startCol < finiteColumnCount)
+      ) {
         const col = indexToColumn(startCol);
         const colWidth = getColumnWidth(col) * viewport.zoom;
         if (x + colWidth > viewport.scrollX) {
@@ -1917,7 +2275,10 @@ export const Spreadsheet = forwardRef<
       }
 
       // Collect visible columns
-      while (x < viewport.scrollX + width) {
+      while (
+        x < viewport.scrollX + width &&
+        (finiteColumnCount === undefined || startCol < finiteColumnCount)
+      ) {
         const col = indexToColumn(startCol);
         const colWidth = getColumnWidth(col) * viewport.zoom;
         headers.push({
@@ -1929,7 +2290,7 @@ export const Spreadsheet = forwardRef<
       }
 
       return headers;
-    }, [width, viewport, getColumnWidth]);
+    }, [finiteColumnCount, width, viewport, getColumnWidth]);
 
     // Get visible row headers (just the row info, no positions)
     const getVisibleRowHeaders = useCallback(() => {
@@ -1940,7 +2301,10 @@ export const Spreadsheet = forwardRef<
       let rowNum = 1;
 
       // Find the first visible row
-      while (y < viewport.scrollY) {
+      while (
+        y < viewport.scrollY &&
+        (finiteRowCount === undefined || rowNum <= finiteRowCount)
+      ) {
         const rowHeight = getRowHeight(rowNum) * viewport.zoom;
         if (y + rowHeight > viewport.scrollY) {
           break;
@@ -1950,7 +2314,10 @@ export const Spreadsheet = forwardRef<
       }
 
       // Collect visible rows
-      while (y < viewport.scrollY + height) {
+      while (
+        y < viewport.scrollY + height &&
+        (finiteRowCount === undefined || rowNum <= finiteRowCount)
+      ) {
         const rowHeight = getRowHeight(rowNum) * viewport.zoom;
         headers.push({
           row: rowNum,
@@ -1961,7 +2328,7 @@ export const Spreadsheet = forwardRef<
       }
 
       return headers;
-    }, [height, viewport, getRowHeight]);
+    }, [finiteRowCount, height, viewport, getRowHeight]);
 
     // Get visible overlays with culling and persistent tracking
     const { visibleOverlays, overlaysToRender } = useMemo(() => {
@@ -2033,6 +2400,66 @@ export const Spreadsheet = forwardRef<
     const visibleRowHeaders = React.useMemo(() => getVisibleRowHeaders(), [getVisibleRowHeaders]);
 
     const hasFocus = useSelectionManager(selectionManager, () => selectionManager.hasFocus);
+    const referenceSelection = useSelectionManager(
+      selectionManager,
+      () => selectionManager.referenceSelection
+    );
+    const referenceSelectionRect = useMemo(() => {
+      if (referenceSelection.type === 'none') return undefined;
+      if (finiteRowCount === 0 || finiteColumnCount === 0) return undefined;
+
+      const range = referenceSelection.range;
+      const lastVisibleRow = visibleCells.reduce(
+        (maximum, cell) => Math.max(maximum, cell.row - 1),
+        range.start.row
+      );
+      const lastVisibleCol = visibleCells.reduce(
+        (maximum, cell) => Math.max(maximum, columnToIndex(cell.col)),
+        range.start.col
+      );
+      const rawEndRow =
+        range.end.row.type === 'number'
+          ? range.end.row.value
+          : finiteRowCount === undefined
+            ? lastVisibleRow
+            : finiteRowCount - 1;
+      const rawEndCol =
+        range.end.col.type === 'number'
+          ? range.end.col.value
+          : finiteColumnCount === undefined
+            ? lastVisibleCol
+            : finiteColumnCount - 1;
+      const maxRow = finiteRowCount === undefined ? Infinity : finiteRowCount - 1;
+      const maxCol = finiteColumnCount === undefined ? Infinity : finiteColumnCount - 1;
+      const startRow = Math.min(Math.max(0, Math.min(range.start.row, rawEndRow)), maxRow);
+      const endRow = Math.min(Math.max(0, Math.max(range.start.row, rawEndRow)), maxRow);
+      const startCol = Math.min(Math.max(0, Math.min(range.start.col, rawEndCol)), maxCol);
+      const endCol = Math.min(Math.max(0, Math.max(range.start.col, rawEndCol)), maxCol);
+      const rect = getRectFromCellSnapAnchor(
+        {
+          startCol,
+          startRow,
+          endCol: endCol + 1,
+          endRow: endRow + 1
+        },
+        columnWidths,
+        rowHeights
+      );
+
+      return {
+        left: HEADER_WIDTH + rect.x,
+        top: HEADER_HEIGHT + rect.y,
+        width: rect.width,
+        height: rect.height
+      };
+    }, [
+      columnWidths,
+      finiteColumnCount,
+      finiteRowCount,
+      referenceSelection,
+      rowHeights,
+      visibleCells
+    ]);
 
     // Add wheel handler to container
     React.useEffect(() => {
@@ -2056,9 +2483,10 @@ export const Spreadsheet = forwardRef<
         },
         blur: () => {
           selectionManager.blur();
-        }
+        },
+        scrollToCell
       }),
-      [selectionManager]
+      [scrollToCell, selectionManager]
     );
 
     return (
@@ -2218,6 +2646,19 @@ export const Spreadsheet = forwardRef<
                     height={height}
                   />
                 ))}
+                {referenceSelectionRect && referenceSelection.type !== 'none' && (
+                  <div
+                    aria-hidden="true"
+                    className={cn(
+                      'rsp-reference-selection',
+                      `rsp-reference-selection-${referenceSelection.type}`
+                    )}
+                    data-testid="spreadsheet-reference-selection"
+                    data-reference-id={referenceSelection.id}
+                    data-reference-phase={referenceSelection.type}
+                    style={referenceSelectionRect}
+                  />
+                )}
               </div>
 
               {/* Overlay components layer */}

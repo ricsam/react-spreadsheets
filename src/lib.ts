@@ -14,11 +14,15 @@ export {
   Spreadsheet,
   type SpreadsheetProps,
   type SpreadsheetRef,
+  type SpreadsheetScrollAlignment,
+  type SpreadsheetScrollToCellOptions,
   type SpreadsheetChild,
   type SpreadsheetChildInitial,
   type SpreadsheetChildState,
   type SpreadsheetComponent,
 } from "./spreadsheet/spreadsheet";
+
+export type { SelectionNavigationModel } from "@ricsam/selection-manager";
 
 // Formula-engine bindings (require `@ricsam/formula-engine` at runtime)
 export {
