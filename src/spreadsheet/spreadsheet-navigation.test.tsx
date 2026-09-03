@@ -172,6 +172,137 @@ describe('spreadsheet navigation and reference selection', () => {
     expect(manager?.selections.at(-1)?.start).toEqual({ row: 0, col: 0 });
   });
 
+  test('scrollToRange normalizes reversed ranges and clamps them to finite bounds', async () => {
+    observedSize = { width: 260, height: 150 };
+    const spreadsheetRef = createRef<SpreadsheetRef>();
+
+    await mount(
+      <Spreadsheet
+        ref={spreadsheetRef}
+        style={{ width: 260, height: 150 }}
+        rowCount={30}
+        columnCount={6}
+      />
+    );
+
+    await act(async () =>
+      spreadsheetRef.current?.scrollToRange(
+        {
+          start: { row: 999, col: 999 },
+          end: {
+            row: { type: 'number', value: 10 },
+            col: { type: 'number', value: 1 }
+          }
+        },
+        { align: 'end' }
+      )
+    );
+
+    expect(document.querySelector<HTMLElement>('[data-testid="spreadsheet-cells"]')?.style.transform).toBe(
+      'translate(-390px, -780px) scale(1)'
+    );
+  });
+
+  test('nearest alignment reveals the closest edge of a range larger than the viewport', async () => {
+    observedSize = { width: 260, height: 150 };
+    const spreadsheetRef = createRef<SpreadsheetRef>();
+
+    await mount(
+      <Spreadsheet
+        ref={spreadsheetRef}
+        style={{ width: 260, height: 150 }}
+        rowCount={30}
+        columnCount={6}
+      />
+    );
+
+    await act(async () =>
+      spreadsheetRef.current?.scrollToRange({
+        start: { row: 10, col: 1 },
+        end: {
+          row: { type: 'number', value: 19 },
+          col: { type: 'number', value: 3 }
+        }
+      })
+    );
+
+    expect(document.querySelector<HTMLElement>('[data-testid="spreadsheet-cells"]')?.style.transform).toBe(
+      'translate(0px, -300px) scale(1)'
+    );
+  });
+
+  test('selection-manager revealRange clamps open ranges to finite sheet bounds', async () => {
+    observedSize = { width: 260, height: 150 };
+    let manager: SelectionManager | undefined;
+
+    await mount(
+      <Spreadsheet
+        style={{ width: 260, height: 150 }}
+        rowCount={50}
+        columnCount={6}
+        selection={{
+          initialState: {
+            selections: [
+              {
+                start: { row: 0, col: 0 },
+                end: {
+                  row: { type: 'number', value: 0 },
+                  col: { type: 'number', value: 0 }
+                }
+              }
+            ]
+          },
+          effects: (selectionManager) => {
+            manager = selectionManager;
+          }
+        }}
+      />
+    );
+
+    if (!manager) throw new Error('Expected SelectionManager');
+    await act(async () =>
+      manager?.revealRange(
+        {
+          start: { row: 40, col: 4 },
+          end: {
+            row: { type: 'infinity' },
+            col: { type: 'infinity' }
+          }
+        },
+        { align: 'end' }
+      )
+    );
+
+    expect(document.querySelector<HTMLElement>('[data-testid="spreadsheet-cells"]')?.style.transform).toBe(
+      'translate(-390px, -1380px) scale(1)'
+    );
+    expect(manager.selections.at(-1)?.start).toEqual({ row: 0, col: 0 });
+  });
+
+  test('open ranges on an unbounded sheet reveal their finite anchor', async () => {
+    observedSize = { width: 260, height: 150 };
+    const spreadsheetRef = createRef<SpreadsheetRef>();
+
+    await mount(<Spreadsheet ref={spreadsheetRef} style={{ width: 260, height: 150 }} />);
+
+    await act(async () =>
+      spreadsheetRef.current?.scrollToRange(
+        {
+          start: { row: 19, col: 3 },
+          end: {
+            row: { type: 'infinity' },
+            col: { type: 'infinity' }
+          }
+        },
+        { align: 'end' }
+      )
+    );
+
+    expect(document.querySelector<HTMLElement>('[data-testid="spreadsheet-cells"]')?.style.transform).toBe(
+      'translate(-190px, -480px) scale(1)'
+    );
+  });
+
   test('wheel scrolling remains available while the selection manager is blurred', async () => {
     observedSize = { width: 260, height: 150 };
     let manager: SelectionManager | undefined;

@@ -134,9 +134,23 @@ function ReferenceAwareSheet({ highlight }: { highlight?: Highlight }) {
 
 Update `highlight` from the formula editor's caret/reference analysis. Clearing
 it removes the decoration, while the selection manager continues to own mouse,
-keyboard and edit selection state independently. For `FormulaWorkbook`, pass a
-controlled `activeSheet` if the editor should reveal a reference on another
-sheet; the same `customCellStyle` prop is forwarded to its active sheet.
+keyboard and edit selection state independently. The same `customCellStyle`
+prop is forwarded to a `FormulaWorkbook`'s active sheet.
+
+To focus and reveal the reference itself, share a `WorkbookSelectionManager`
+with the formula sheets and pass the resolved `RangeAddress` to `focusRange`:
+
+```tsx
+const workbookSelection = new WorkbookSelectionManager();
+
+workbookSelection.focusRange(referenceAddress, { align: "nearest" });
+```
+
+The call selects the complete target range, focuses its grid and asks the grid
+to reveal it. It returns `true` when the target sheet is already mounted. If a
+controlled `FormulaWorkbook` still needs to switch `activeSheet`, it returns
+`false` and queues the latest request; mounting that sheet applies the focus and
+reveal automatically.
 
 For the range currently being inserted into a formula, use selection-manager's
 reference-picking mode instead. It preserves the primary/editing selection and
@@ -199,6 +213,11 @@ Override any part of that behavior through `selection.navigation`:
 The imperative `SpreadsheetRef.scrollToCell({ row, col }, { align })` reveals a
 cell without changing selection. Alignment is `"nearest"` by default, with
 `"start"` and `"end"` available for explicit positioning.
+
+`SpreadsheetRef.scrollToRange(range, { align })` does the same for an `SMArea`.
+Finite ranges may be supplied in either direction and are clamped to finite grid
+bounds. An open-ended axis reaches the final row or column of a finite grid; on
+an unbounded grid its finite start is used as the reveal anchor.
 
 ## Theming
 

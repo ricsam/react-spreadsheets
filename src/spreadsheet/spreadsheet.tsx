@@ -5,6 +5,7 @@ import {
   SelectionManager,
   type SelectionNavigationModel,
   type SelectionManagerState,
+  type SMArea,
   type SMCell,
   useInitializeSelectionManager,
   useSelectionManager
@@ -133,9 +134,48 @@ const alignScrollOffset = (
   if (viewportSize <= 0) return current;
   if (align === 'start') return itemStart;
   if (align === 'end') return itemEnd - viewportSize;
+
+  // If a range is larger than the viewport, retain an already-visible portion.
+  // When it is entirely outside the viewport, reveal its nearest edge instead
+  // of jumping across the range to its more distant edge.
+  if (itemEnd - itemStart > viewportSize) {
+    if (itemEnd <= current) return itemEnd - viewportSize;
+    if (itemStart >= current + viewportSize) return itemStart;
+    return current;
+  }
+
   if (itemStart < current) return itemStart;
   if (itemEnd > current + viewportSize) return itemEnd - viewportSize;
   return current;
+};
+
+const normalizeScrollRangeAxis = (
+  start: number,
+  end: MaybeInfNumber,
+  finiteCount: number | undefined
+): { start: number; end: number } | undefined => {
+  if (!Number.isFinite(start) || (end.type === 'number' && !Number.isFinite(end.value))) {
+    return undefined;
+  }
+
+  const normalizedStart = Math.max(0, Math.floor(start));
+  const normalizedEnd =
+    end.type === 'infinity'
+      ? finiteCount === undefined
+        ? normalizedStart
+        : Math.max(0, finiteCount - 1)
+      : Math.max(0, Math.floor(end.value));
+  const lower = Math.min(normalizedStart, normalizedEnd);
+  const upper = Math.max(normalizedStart, normalizedEnd);
+
+  if (finiteCount === undefined) return { start: lower, end: upper };
+  if (finiteCount === 0) return undefined;
+
+  const lastIndex = finiteCount - 1;
+  return {
+    start: Math.min(lower, lastIndex),
+    end: Math.min(upper, lastIndex)
+  };
 };
 
 const hasCellData = (value: SerializedCellValue): boolean => value !== undefined && value !== '';
@@ -770,6 +810,10 @@ export interface SpreadsheetScrollToCellOptions {
   align?: SpreadsheetScrollAlignment;
 }
 
+export interface SpreadsheetScrollToRangeOptions {
+  align?: SpreadsheetScrollAlignment;
+}
+
 // Ref interface for imperative methods
 export interface SpreadsheetRef {
   focus: () => void;
@@ -778,6 +822,11 @@ export interface SpreadsheetRef {
   scrollToCell: (
     cell: SMCell,
     options?: SpreadsheetScrollToCellOptions
+  ) => void;
+  /** Reveal a zero-based range without changing the selection. */
+  scrollToRange: (
+    range: SMArea,
+    options?: SpreadsheetScrollToRangeOptions
   ) => void;
 }
 
@@ -1408,35 +1457,26 @@ export const Spreadsheet = forwardRef<
       [columnWidths, finiteColumnCount, finiteRowCount, height, rowHeights, width]
     );
 
-    const revealCell = useCallback(
+    const revealRange = useCallback(
       (
-        cell: SMCell,
+        range: SMArea,
         options: {
           rowAlign?: SpreadsheetScrollAlignment;
           columnAlign?: SpreadsheetScrollAlignment;
         } = {}
       ) => {
         if (finiteRowCount === 0 || finiteColumnCount === 0) return;
-        if (!Number.isFinite(cell.row) || !Number.isFinite(cell.col)) return;
-
-        const requestedRow = Math.max(0, Math.floor(cell.row));
-        const requestedCol = Math.max(0, Math.floor(cell.col));
-        const row =
-          finiteRowCount === undefined
-            ? requestedRow
-            : Math.min(requestedRow, finiteRowCount - 1);
-        const col =
-          finiteColumnCount === undefined
-            ? requestedCol
-            : Math.min(requestedCol, finiteColumnCount - 1);
+        const rows = normalizeScrollRangeAxis(range.start.row, range.end.row, finiteRowCount);
+        const columns = normalizeScrollRangeAxis(range.start.col, range.end.col, finiteColumnCount);
+        if (!rows || !columns) return;
 
         setViewport((previous) => {
           const bodyWidth = Math.max(0, width - HEADER_WIDTH * previous.zoom);
           const bodyHeight = Math.max(0, height - HEADER_HEIGHT * previous.zoom);
-          const left = getColumnEdgePosition(col, columnWidths) * previous.zoom;
-          const right = getColumnEdgePosition(col + 1, columnWidths) * previous.zoom;
-          const top = getRowEdgePosition(row, rowHeights) * previous.zoom;
-          const bottom = getRowEdgePosition(row + 1, rowHeights) * previous.zoom;
+          const left = getColumnEdgePosition(columns.start, columnWidths) * previous.zoom;
+          const right = getColumnEdgePosition(columns.end + 1, columnWidths) * previous.zoom;
+          const top = getRowEdgePosition(rows.start, rowHeights) * previous.zoom;
+          const bottom = getRowEdgePosition(rows.end + 1, rowHeights) * previous.zoom;
           const desired = clampViewportOffsets(
             alignScrollOffset(
               previous.scrollX,
@@ -1475,6 +1515,28 @@ export const Spreadsheet = forwardRef<
       ]
     );
 
+    const revealCell = useCallback(
+      (
+        cell: SMCell,
+        options: {
+          rowAlign?: SpreadsheetScrollAlignment;
+          columnAlign?: SpreadsheetScrollAlignment;
+        } = {}
+      ) => {
+        revealRange(
+          {
+            start: { row: cell.row, col: cell.col },
+            end: {
+              row: { type: 'number', value: cell.row },
+              col: { type: 'number', value: cell.col }
+            }
+          },
+          options
+        );
+      },
+      [revealRange]
+    );
+
     const scrollToCell = useCallback(
       (cell: SMCell, options: SpreadsheetScrollToCellOptions = {}) => {
         const align = options.align ?? 'nearest';
@@ -1483,16 +1545,29 @@ export const Spreadsheet = forwardRef<
       [revealCell]
     );
 
+    const scrollToRange = useCallback(
+      (range: SMArea, options: SpreadsheetScrollToRangeOptions = {}) => {
+        const align = options.align ?? 'nearest';
+        revealRange(range, { rowAlign: align, columnAlign: align });
+      },
+      [revealRange]
+    );
+
     useEffect(
       () =>
         selectionManager.listenToViewportRequest((request) => {
+          if (request.type === 'reveal-range') {
+            scrollToRange(request.range, { align: request.align });
+            return;
+          }
+
           const isVertical = request.direction === 'up' || request.direction === 'down';
           revealCell(request.cell, {
             rowAlign: isVertical ? request.align : 'nearest',
             columnAlign: isVertical ? 'nearest' : request.align
           });
         }),
-      [revealCell, selectionManager]
+      [revealCell, scrollToRange, selectionManager]
     );
 
     // Keep an existing viewport valid when finite dimensions or custom sizes shrink.
@@ -2484,9 +2559,10 @@ export const Spreadsheet = forwardRef<
         blur: () => {
           selectionManager.blur();
         },
-        scrollToCell
+        scrollToCell,
+        scrollToRange
       }),
-      [scrollToCell, selectionManager]
+      [scrollToCell, scrollToRange, selectionManager]
     );
 
     return (

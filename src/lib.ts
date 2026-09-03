@@ -16,6 +16,7 @@ export {
   type SpreadsheetRef,
   type SpreadsheetScrollAlignment,
   type SpreadsheetScrollToCellOptions,
+  type SpreadsheetScrollToRangeOptions,
   type SpreadsheetChild,
   type SpreadsheetChildInitial,
   type SpreadsheetChildState,
@@ -31,6 +32,8 @@ export {
   WorkbookClipboardManager,
   WorkbookSelectionManager,
 } from "./workbook/workbook";
+
+export type { WorkbookRangeFocusOptions } from "./workbook/workbook-selection-manager";
 
 export {
   coerceCellInput,
