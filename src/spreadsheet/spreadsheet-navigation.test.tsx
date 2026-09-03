@@ -172,6 +172,81 @@ describe('spreadsheet navigation and reference selection', () => {
     expect(manager?.selections.at(-1)?.start).toEqual({ row: 0, col: 0 });
   });
 
+  test('wheel scrolling remains available while the selection manager is blurred', async () => {
+    observedSize = { width: 260, height: 150 };
+    let manager: SelectionManager | undefined;
+
+    await mount(
+      <Spreadsheet
+        style={{ width: 260, height: 150 }}
+        rowCount={50}
+        columnCount={6}
+        selection={{
+          effects: (selectionManager) => {
+            manager = selectionManager;
+          }
+        }}
+      />
+    );
+
+    if (!manager) throw new Error('Expected SelectionManager');
+    await act(async () => {
+      manager?.focus();
+      manager?.blur();
+    });
+
+    const spreadsheet = document.querySelector<HTMLElement>(
+      '[data-testid="spreadsheet-container"]'
+    );
+    if (!spreadsheet) throw new Error('Expected spreadsheet container');
+
+    const wheelEvent = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 90
+    });
+    await act(async () => {
+      spreadsheet.dispatchEvent(wheelEvent);
+    });
+
+    expect(wheelEvent.defaultPrevented).toBe(true);
+    expect(document.querySelector<HTMLElement>('[data-testid="spreadsheet-cells"]')?.style.transform).toBe(
+      'translate(0px, -90px) scale(1)'
+    );
+  });
+
+  test('wheel scrolling stays disabled when the parent component is not selected', async () => {
+    observedSize = { width: 260, height: 150 };
+
+    await mount(
+      <Spreadsheet
+        style={{ width: 260, height: 150 }}
+        rowCount={50}
+        columnCount={6}
+        parentSelected={false}
+      />
+    );
+
+    const spreadsheet = document.querySelector<HTMLElement>(
+      '[data-testid="spreadsheet-container"]'
+    );
+    if (!spreadsheet) throw new Error('Expected spreadsheet container');
+
+    const wheelEvent = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 90
+    });
+    await act(async () => {
+      spreadsheet.dispatchEvent(wheelEvent);
+    });
+
+    expect(wheelEvent.defaultPrevented).toBe(false);
+    expect(document.querySelector<HTMLElement>('[data-testid="spreadsheet-cells"]')?.style.transform).toBe(
+      'translate(0px, 0px) scale(1)'
+    );
+  });
+
   test('reverse reference drag renders one overlay around every cell in the rectangle', async () => {
     let manager: SelectionManager | undefined;
 

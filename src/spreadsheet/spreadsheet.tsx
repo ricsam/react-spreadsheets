@@ -2463,7 +2463,7 @@ export const Spreadsheet = forwardRef<
 
     // Add wheel handler to container
     React.useEffect(() => {
-      if (!containerDivRef || !hasFocus || !parentSelected) {
+      if (!containerDivRef || !parentSelected) {
         return;
       }
       containerDivRef.addEventListener('wheel', handleWheel, {
@@ -2472,7 +2472,7 @@ export const Spreadsheet = forwardRef<
       return () => {
         containerDivRef.removeEventListener('wheel', handleWheel);
       };
-    }, [containerDivRef, handleWheel, hasFocus, parentSelected]);
+    }, [containerDivRef, handleWheel, parentSelected]);
 
     // Forward ref
     useImperativeHandle(
