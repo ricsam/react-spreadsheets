@@ -308,16 +308,18 @@ describe('spreadsheet navigation and reference selection', () => {
     let manager: SelectionManager | undefined;
 
     await mount(
-      <Spreadsheet
-        style={{ width: 260, height: 150 }}
-        rowCount={50}
-        columnCount={6}
-        selection={{
-          effects: (selectionManager) => {
-            manager = selectionManager;
-          }
-        }}
-      />
+      <div data-rsp-overlay="outer-spreadsheet-overlay">
+        <Spreadsheet
+          style={{ width: 260, height: 150 }}
+          rowCount={50}
+          columnCount={6}
+          selection={{
+            effects: (selectionManager) => {
+              manager = selectionManager;
+            }
+          }}
+        />
+      </div>
     );
 
     if (!manager) throw new Error('Expected SelectionManager');
@@ -341,6 +343,88 @@ describe('spreadsheet navigation and reference selection', () => {
     });
 
     expect(wheelEvent.defaultPrevented).toBe(true);
+    expect(document.querySelector<HTMLElement>('[data-testid="spreadsheet-cells"]')?.style.transform).toBe(
+      'translate(0px, -90px) scale(1)'
+    );
+  });
+
+  test('wheel events inside an overlay remain native and do not move the grid', async () => {
+    observedSize = { width: 260, height: 150 };
+    let manager: SelectionManager | undefined;
+
+    await mount(
+      <Spreadsheet
+        style={{ width: 260, height: 150 }}
+        rowCount={50}
+        columnCount={6}
+        components={{
+          RichText: () => (
+            <div data-testid="scrollable-overlay">
+              <div data-testid="scrollable-overlay-content">Scrollable content</div>
+            </div>
+          )
+        }}
+        overlayChildren={[
+          {
+            id: 'notes',
+            component: 'RichText',
+            title: 'Notes',
+            x: 0,
+            y: 0,
+            width: 160,
+            height: 100
+          }
+        ]}
+        selection={{
+          effects: (selectionManager) => {
+            manager = selectionManager;
+          }
+        }}
+      />
+    );
+
+    if (!manager) throw new Error('Expected SelectionManager');
+    await act(async () => {
+      manager?.focus();
+      manager?.blur();
+    });
+
+    const overlayContent = document.querySelector<HTMLElement>(
+      '[data-testid="scrollable-overlay-content"]'
+    );
+    if (!overlayContent) throw new Error('Expected scrollable overlay content');
+    expect(overlayContent.closest('[data-rsp-overlay]')?.getAttribute('data-rsp-overlay')).toBe(
+      'notes'
+    );
+
+    const wheelEvent = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 90
+    });
+    await act(async () => {
+      overlayContent.dispatchEvent(wheelEvent);
+    });
+
+    expect(wheelEvent.defaultPrevented).toBe(false);
+    expect(document.querySelector<HTMLElement>('[data-testid="spreadsheet-cells"]')?.style.transform).toBe(
+      'translate(0px, 0px) scale(1)'
+    );
+
+    const overlayLayer = document.querySelector<HTMLElement>(
+      '[data-testid="spreadsheet-overlays"]'
+    );
+    if (!overlayLayer) throw new Error('Expected overlay layer');
+    const layerWheelEvent = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 90
+    });
+    await act(async () => {
+      overlayLayer.dispatchEvent(layerWheelEvent);
+    });
+
+    expect(layerWheelEvent.defaultPrevented).toBe(true);
     expect(document.querySelector<HTMLElement>('[data-testid="spreadsheet-cells"]')?.style.transform).toBe(
       'translate(0px, -90px) scale(1)'
     );

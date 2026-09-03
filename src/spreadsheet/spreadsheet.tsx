@@ -50,6 +50,8 @@ import {
   type CellSnapResizeHandle
 } from './snapping';
 
+const SPREADSHEET_OVERLAY_SELECTOR = '[data-rsp-overlay]';
+
 /**
  * Resolves the grid line color used for canvas painting.
  *
@@ -1669,6 +1671,14 @@ export const Spreadsheet = forwardRef<
     // Handle wheel events (scroll only, zoom disabled)
     const handleWheel = useCallback(
       (e: WheelEvent) => {
+        const target = e.target;
+        const currentTarget = e.currentTarget;
+        const overlay =
+          target instanceof Element ? target.closest(SPREADSHEET_OVERLAY_SELECTOR) : null;
+        if (overlay && currentTarget instanceof Node && currentTarget.contains(overlay)) {
+          return;
+        }
+
         e.preventDefault();
         e.stopPropagation();
 
@@ -2755,6 +2765,7 @@ export const Spreadsheet = forwardRef<
                     return (
                       <div
                         key={child.id}
+                        data-rsp-overlay={child.id}
                         style={{
                           position: 'absolute',
                           width: child.width,

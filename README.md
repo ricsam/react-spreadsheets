@@ -339,6 +339,11 @@ Per-cell styling is done in JS:
 | `selection` | Selection state, navigation model, and `effects(selectionManager)` for copy/paste/fill/reference hooks. |
 | `components` + `overlayChildren` | Floating overlays anchored to the grid, optionally snapped to cell edges. |
 
+Wheel input over the grid remains available when its cell selection is blurred.
+Wheel events originating inside a floating overlay are left to that overlay, so
+scrollable editors and other interactive overlay content keep their native
+scroll behavior.
+
 ## Development
 
 ```bash
