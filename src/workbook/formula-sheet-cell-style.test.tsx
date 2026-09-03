@@ -1,8 +1,9 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { FormulaEngine } from '@ricsam/formula-engine';
+import type { SelectionManager } from '@ricsam/selection-manager';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { FormulaSheet } from './workbook';
+import { FormulaSheet, WorkbookSelectionManager } from './workbook';
 
 class TestResizeObserver implements ResizeObserver {
   constructor(private readonly callback: ResizeObserverCallback) {}
@@ -94,5 +95,70 @@ describe('FormulaSheet custom cell styles', () => {
     expect(cell?.style.backgroundColor).toBe('#fef08a');
     expect(cell?.style.color).toBe('#1d4ed8');
     expect(cell?.style.fontWeight).toBe('bold');
+  });
+
+  test('repaints a programmatic range selection when the grid is already focused', async () => {
+    const engine = FormulaEngine.buildEmpty();
+    engine.addWorkbook('Book');
+    engine.addSheet({ workbookName: 'Book', sheetName: 'Sheet1' });
+    const workbookSelection = new WorkbookSelectionManager();
+    let sheetSelection: SelectionManager | undefined;
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        <FormulaSheet
+          engine={engine}
+          workbookName="Book"
+          sheetName="Sheet1"
+          selectionManager={workbookSelection}
+          selection={{
+            initialState: {
+              selections: [
+                {
+                  start: { row: 0, col: 0 },
+                  end: {
+                    row: { type: 'number', value: 0 },
+                    col: { type: 'number', value: 0 }
+                  }
+                }
+              ]
+            },
+            effects: (manager) => {
+              sheetSelection = manager;
+            }
+          }}
+        />
+      );
+    });
+
+    if (!sheetSelection) throw new Error('Expected sheet SelectionManager');
+    await act(async () => sheetSelection?.focus());
+    expect(
+      document.querySelector('[data-testid="spreadsheet-cell-A1"]')?.classList.contains('rsp-cell-selected')
+    ).toBe(true);
+
+    await act(async () => {
+      workbookSelection.focusRange({
+        workbookName: 'Book',
+        sheetName: 'Sheet1',
+        range: {
+          start: { row: 1, col: 1 },
+          end: {
+            row: { type: 'number', value: 1 },
+            col: { type: 'number', value: 1 }
+          }
+        }
+      });
+    });
+
+    expect(
+      document.querySelector('[data-testid="spreadsheet-cell-A1"]')?.classList.contains('rsp-cell-selected')
+    ).toBe(false);
+    expect(
+      document.querySelector('[data-testid="spreadsheet-cell-B2"]')?.classList.contains('rsp-cell-selected')
+    ).toBe(true);
   });
 });

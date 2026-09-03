@@ -152,6 +152,29 @@ controlled `FormulaWorkbook` still needs to switch `activeSheet`, it returns
 `false` and queues the latest request; mounting that sheet applies the focus and
 reveal automatically.
 
+If the same workbook can be mounted in more than one place, give each rendered
+view a stable ID and target that ID when navigating. Selection caches are also
+scoped to the view, so switching sheets or remounting one pane cannot restore a
+selection from its duplicate:
+
+```tsx
+<FormulaWorkbook
+  viewId="left-pane"
+  workbookName="Forecast"
+  engine={engine}
+  selectionManager={workbookSelection}
+/>
+
+workbookSelection.focusRange(referenceAddress, {
+  align: "nearest",
+  viewId: "left-pane",
+});
+```
+
+Omitting `viewId` preserves the single-view API and targets the first matching
+mounted workbook/sheet. Call `cancelPendingFocusRange()` if an app-level sheet
+or pane switch is abandoned before the queued target mounts.
+
 For the range currently being inserted into a formula, use selection-manager's
 reference-picking mode instead. It preserves the primary/editing selection and
 the grid renders the picked range with an independent animated border:

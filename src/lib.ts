@@ -31,9 +31,14 @@ export {
   FormulaWorkbook,
   WorkbookClipboardManager,
   WorkbookSelectionManager,
+  type FormulaSheetProps,
+  type FormulaWorkbookProps,
 } from "./workbook/workbook";
 
-export type { WorkbookRangeFocusOptions } from "./workbook/workbook-selection-manager";
+export type {
+  WorkbookRangeFocusOptions,
+  WorkbookSelectionContext,
+} from "./workbook/workbook-selection-manager";
 
 export {
   coerceCellInput,

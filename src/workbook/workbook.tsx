@@ -178,7 +178,7 @@ type SpreadsheetLayout = {
   rowHeights?: SpreadsheetRowHeights;
 };
 
-interface FormulaSheetProps
+export interface FormulaSheetProps
   extends Omit<
     SpreadsheetProps,
     | 'selection'
@@ -199,6 +199,8 @@ interface FormulaSheetProps
   verboseErrors?: boolean;
   selection?: SpreadsheetProps['selection'];
   selectionManager?: WorkbookSelectionManager;
+  /** Stable identity used to distinguish duplicate mounted views of this sheet. */
+  viewId?: string;
   customCellStyle?: (
     cell: CellRenderContext,
     internalStyle: React.CSSProperties
@@ -345,6 +347,7 @@ export function FormulaSheet({
   verboseErrors = false,
   selection,
   selectionManager,
+  viewId,
   customCellStyle,
   customCellRenderer,
   onCellDataChangeError = queueCellEditError,
@@ -575,7 +578,8 @@ export function FormulaSheet({
       if (selectionManager) {
         const workbookManagerCleanup = selectionManager.add(spreadsheetSelectionManager, {
           workbookName,
-          sheetName
+          sheetName,
+          ...(viewId === undefined ? {} : { viewId })
         });
         cleanups.push(workbookManagerCleanup);
       }
@@ -600,6 +604,7 @@ export function FormulaSheet({
       selectionManager,
       sheetName,
       showFormulas,
+      viewId,
       workbookName
     ]
   );
@@ -893,7 +898,7 @@ export function FormulaSheet({
   );
 }
 
-interface FormulaWorkbookProps
+export interface FormulaWorkbookProps
   extends Omit<
     SpreadsheetProps,
     | 'cellData'
@@ -921,6 +926,8 @@ interface FormulaWorkbookProps
   verboseErrors?: boolean;
   selection?: SpreadsheetProps['selection'];
   selectionManager?: WorkbookSelectionManager;
+  /** Stable identity used to distinguish duplicate mounted views of this workbook. */
+  viewId?: string;
   customCellStyle?: (
     cell: CellRenderContext,
     internalStyle: React.CSSProperties
@@ -960,6 +967,7 @@ export function FormulaWorkbook({
   onActiveSheetChange,
   verboseErrors = false,
   selectionManager,
+  viewId,
   // Add overlay props
   components,
   sheetOverlayChildren,
@@ -1190,6 +1198,7 @@ export function FormulaWorkbook({
             engine={engine}
             verboseErrors={verboseErrors}
             selectionManager={selectionManager}
+            viewId={viewId}
             {...rest}
             // Pass overlay props for the active sheet
             components={components}

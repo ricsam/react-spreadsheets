@@ -1,19 +1,26 @@
 import type { RangeAddress, SpreadsheetRange, SpreadsheetRangeEnd } from '@ricsam/formula-engine';
-import { indexToColumn, getCellReference } from '@ricsam/formula-engine';
+import { indexToColumn } from '@ricsam/formula-engine';
 import type {
   SelectionManager,
   SMArea,
   ViewportAlignment
 } from '@ricsam/selection-manager';
 
-interface ManagerContext {
+export interface WorkbookSelectionContext {
   workbookName: string;
   sheetName: string;
+  /**
+   * Stable identity for this rendered workbook view. Supply this when the same
+   * workbook/sheet can be mounted more than once, such as in split-screen panes.
+   */
+  viewId?: string;
 }
 
 export interface WorkbookRangeFocusOptions {
   /** How the target range should be positioned in the spreadsheet viewport. */
   align?: ViewportAlignment;
+  /** Target one mounted copy when the workbook/sheet is rendered more than once. */
+  viewId?: string;
 }
 
 interface PendingRangeFocus {
@@ -22,11 +29,37 @@ interface PendingRangeFocus {
 }
 
 export class WorkbookSelectionManager {
-  private managers = new Map<SelectionManager, ManagerContext>();
-  private lastFocusedManager: { sm: SelectionManager; context: ManagerContext } | null = null;
+  private managers = new Map<SelectionManager, WorkbookSelectionContext>();
+  private lastFocusedManager: {
+    sm: SelectionManager;
+    context: WorkbookSelectionContext;
+  } | null = null;
+  private lastSelections: RangeAddress[] = [];
+  private selectionsByView = new Map<string, SMArea[]>();
   private listeners = new Set<(selections: RangeAddress[]) => void>();
   private cleanupFunctions = new Map<SelectionManager, () => void>();
   private pendingRangeFocus: PendingRangeFocus | null = null;
+  private applyingRangeFocus = new Set<SelectionManager>();
+
+  private getViewKey(context: WorkbookSelectionContext): string {
+    return JSON.stringify([context.workbookName, context.sheetName, context.viewId ?? null]);
+  }
+
+  private cloneSmArea(area: SMArea): SMArea {
+    return {
+      start: { row: area.start.row, col: area.start.col },
+      end: {
+        row:
+          area.end.row.type === 'infinity'
+            ? { type: 'infinity' }
+            : { type: 'number', value: area.end.row.value },
+        col:
+          area.end.col.type === 'infinity'
+            ? { type: 'infinity' }
+            : { type: 'number', value: area.end.col.value }
+      }
+    };
+  }
 
   private smAreaToSpreadsheetRange(area: SMArea): SpreadsheetRange {
     const rowEnd: SpreadsheetRangeEnd =
@@ -75,29 +108,68 @@ export class WorkbookSelectionManager {
     };
   }
 
-  private matchesContext(address: RangeAddress, context: ManagerContext): boolean {
-    return address.workbookName === context.workbookName && address.sheetName === context.sheetName;
+  private areasToRangeAddresses(
+    areas: readonly SMArea[],
+    context: WorkbookSelectionContext
+  ): RangeAddress[] {
+    return areas.map((area) => ({
+      workbookName: context.workbookName,
+      sheetName: context.sheetName,
+      range: this.smAreaToSpreadsheetRange(area)
+    }));
+  }
+
+  private rememberSelections(
+    manager: SelectionManager,
+    context: WorkbookSelectionContext,
+    areas: readonly SMArea[] = manager.getState().selections
+  ): void {
+    const cachedAreas = areas.map((area) => this.cloneSmArea(area));
+    this.selectionsByView.set(this.getViewKey(context), cachedAreas);
+    this.lastFocusedManager = { sm: manager, context };
+    this.lastSelections = this.areasToRangeAddresses(cachedAreas, context);
+  }
+
+  private matchesContext(
+    address: RangeAddress,
+    context: WorkbookSelectionContext,
+    viewId?: string
+  ): boolean {
+    return (
+      address.workbookName === context.workbookName &&
+      address.sheetName === context.sheetName &&
+      (viewId === undefined || context.viewId === viewId)
+    );
   }
 
   private applyRangeFocus(
     manager: SelectionManager,
-    context: ManagerContext,
+    context: WorkbookSelectionContext,
     request: PendingRangeFocus
   ): void {
     const selection = this.spreadsheetRangeToSmArea(request.address.range);
-    manager.setState({ selections: [selection] });
-    manager.focus();
+
+    // SelectionManager notifies render subscribers for replaceSelections even
+    // when this grid already has focus. Suppress only this coordinator's own
+    // observers so one programmatic action emits one workbook-level update.
+    this.applyingRangeFocus.add(manager);
+    try {
+      manager.replaceSelections([selection]);
+      manager.focus();
+    } finally {
+      this.applyingRangeFocus.delete(manager);
+    }
     manager.revealRange(selection, request.options);
-    this.lastFocusedManager = { sm: manager, context };
+    this.rememberSelections(manager, context, [selection]);
     this.emitChange();
   }
 
   private applyPendingRangeFocusOnMount(
     manager: SelectionManager,
-    context: ManagerContext
+    context: WorkbookSelectionContext
   ): void {
     const pending = this.pendingRangeFocus;
-    if (!pending || !this.matchesContext(pending.address, context)) return;
+    if (!pending || !this.matchesContext(pending.address, context, pending.options.viewId)) return;
 
     // Spreadsheet registers its consumer of SelectionManager viewport requests
     // in a later effect than FormulaSheet registers with this manager. Defer
@@ -105,7 +177,12 @@ export class WorkbookSelectionManager {
     queueMicrotask(() => {
       if (this.pendingRangeFocus !== pending) return;
       const mountedContext = this.managers.get(manager);
-      if (!mountedContext || !this.matchesContext(pending.address, mountedContext)) return;
+      if (
+        !mountedContext ||
+        !this.matchesContext(pending.address, mountedContext, pending.options.viewId)
+      ) {
+        return;
+      }
 
       this.pendingRangeFocus = null;
       this.applyRangeFocus(manager, mountedContext, pending);
@@ -116,15 +193,21 @@ export class WorkbookSelectionManager {
    * Register a SelectionManager with its workbook/sheet context
    * Returns a cleanup function to unregister
    */
-  add(manager: SelectionManager, context: ManagerContext): () => void {
-    this.managers.set(manager, context);
+  add(manager: SelectionManager, context: WorkbookSelectionContext): () => void {
+    const registeredContext = { ...context };
+    this.managers.set(manager, registeredContext);
+
+    const cachedSelections = this.selectionsByView.get(this.getViewKey(registeredContext));
+    if (cachedSelections && manager.getState().selections.length === 0) {
+      manager.replaceSelections(cachedSelections);
+    }
 
     // Listen to focus changes
     const focusCleanup = manager.observeStateChange(
       (state) => state.hasFocus,
       (hasFocus) => {
-        if (hasFocus) {
-          this.lastFocusedManager = { sm: manager, context };
+        if (hasFocus && !this.applyingRangeFocus.has(manager)) {
+          this.rememberSelections(manager, registeredContext);
           this.emitChange();
         }
       }
@@ -134,9 +217,10 @@ export class WorkbookSelectionManager {
     const selectionCleanup = manager.observeStateChange(
       (state) => JSON.stringify(state.selections),
       (selectionsJson) => {
-        const selections = JSON.parse(selectionsJson);
+        if (this.applyingRangeFocus.has(manager)) return;
+        const selections = JSON.parse(selectionsJson) as SMArea[];
         if (selections && selections.length > 0) {
-          this.lastFocusedManager = { sm: manager, context };
+          this.rememberSelections(manager, registeredContext, selections);
           this.emitChange();
         }
       }
@@ -149,19 +233,25 @@ export class WorkbookSelectionManager {
       this.managers.delete(manager);
       this.cleanupFunctions.delete(manager);
       if (this.lastFocusedManager?.sm === manager) {
+        // Keep the logical selection while a FormulaWorkbook replaces the grid
+        // for a sheet switch. A later mount of this view restores its own cache.
+        this.rememberSelections(manager, registeredContext);
         this.lastFocusedManager = null;
       }
     };
 
     this.cleanupFunctions.set(manager, cleanup);
-    this.applyPendingRangeFocusOnMount(manager, context);
+    this.applyPendingRangeFocusOnMount(manager, registeredContext);
     return cleanup;
   }
 
   /**
    * Get the SelectionManager that was last focused or had selection activity
    */
-  getLastFocusedSelectionManager(): { sm: SelectionManager; context: ManagerContext } | null {
+  getLastFocusedSelectionManager(): {
+    sm: SelectionManager;
+    context: WorkbookSelectionContext;
+  } | null {
     return this.lastFocusedManager;
   }
 
@@ -169,18 +259,7 @@ export class WorkbookSelectionManager {
    * Get all current selections from the last focused manager.
    */
   getSelections(): RangeAddress[] {
-    if (!this.lastFocusedManager) {
-      return [];
-    }
-
-    const { sm, context } = this.lastFocusedManager;
-    const state = sm.getState();
-
-    return state.selections.map((area) => ({
-      workbookName: context.workbookName,
-      sheetName: context.sheetName,
-      range: this.smAreaToSpreadsheetRange(area)
-    }));
+    return this.lastSelections.map((selection) => this.cloneRangeAddress(selection));
   }
 
   /**
@@ -268,12 +347,14 @@ export class WorkbookSelectionManager {
    * This should be called when the component loses focus
    */
   blur(): void {
-    this.managers.forEach((context, manager) => {
+    this.managers.forEach((_context, manager) => {
       manager.clearSelections();
       manager.blur();
     });
     // Clear the last focused manager and emit change to notify listeners
+    this.selectionsByView.clear();
     this.lastFocusedManager = null;
+    this.lastSelections = [];
     this.emitChange();
   }
 
@@ -281,11 +362,14 @@ export class WorkbookSelectionManager {
    * Focus the selection manager for a specific workbook (first sheet found).
    * This is useful when programmatically switching focus, e.g., after maximizing a window.
    */
-  focusWorkbook(workbookName: string): void {
+  focusWorkbook(workbookName: string, viewId?: string): void {
     for (const [manager, context] of this.managers) {
-      if (context.workbookName === workbookName) {
+      if (
+        context.workbookName === workbookName &&
+        (viewId === undefined || context.viewId === viewId)
+      ) {
         manager.focus();
-        this.lastFocusedManager = { sm: manager, context };
+        this.rememberSelections(manager, context);
         this.emitChange();
         return;
       }
@@ -295,11 +379,15 @@ export class WorkbookSelectionManager {
   /**
    * Focus the selection manager for a specific sheet without changing the cell selection.
    */
-  focusSheet(workbookName: string, sheetName: string): boolean {
+  focusSheet(workbookName: string, sheetName: string, viewId?: string): boolean {
     for (const [manager, context] of this.managers) {
-      if (context.workbookName === workbookName && context.sheetName === sheetName) {
+      if (
+        context.workbookName === workbookName &&
+        context.sheetName === sheetName &&
+        (viewId === undefined || context.viewId === viewId)
+      ) {
         manager.focus();
-        this.lastFocusedManager = { sm: manager, context };
+        this.rememberSelections(manager, context);
         this.emitChange();
         return true;
       }
@@ -315,18 +403,27 @@ export class WorkbookSelectionManager {
    * @returns true when focused immediately, false when queued until the target
    *          sheet mounts.
    */
-  focusCell(workbookName: string, sheetName: string, row: number, col: number): boolean {
-    return this.focusRange({
-      workbookName,
-      sheetName,
-      range: {
-        start: { row, col },
-        end: {
-          row: { type: 'number', value: row },
-          col: { type: 'number', value: col }
+  focusCell(
+    workbookName: string,
+    sheetName: string,
+    row: number,
+    col: number,
+    options: WorkbookRangeFocusOptions = {}
+  ): boolean {
+    return this.focusRange(
+      {
+        workbookName,
+        sheetName,
+        range: {
+          start: { row, col },
+          end: {
+            row: { type: 'number', value: row },
+            col: { type: 'number', value: col }
+          }
         }
-      }
-    });
+      },
+      options
+    );
   }
 
   /**
@@ -345,7 +442,7 @@ export class WorkbookSelectionManager {
     };
 
     for (const [manager, context] of this.managers) {
-      if (!this.matchesContext(request.address, context)) continue;
+      if (!this.matchesContext(request.address, context, request.options.viewId)) continue;
       this.pendingRangeFocus = null;
       this.applyRangeFocus(manager, context, request);
       return true;
@@ -353,6 +450,11 @@ export class WorkbookSelectionManager {
 
     this.pendingRangeFocus = request;
     return false;
+  }
+
+  /** Cancel the latest queued range focus before its target view mounts. */
+  cancelPendingFocusRange(): void {
+    this.pendingRangeFocus = null;
   }
 
   /**

@@ -12,16 +12,33 @@ const createSelectionManager = () =>
 
 const rangeAddress = (
   workbookName = 'Workbook1',
-  sheetName = 'Sheet1'
+  sheetName = 'Sheet1',
+  startRow = 8,
+  startCol = 2,
+  endRow = 14,
+  endCol = 5
 ): RangeAddress => ({
   workbookName,
   sheetName,
   range: {
-    start: { row: 8, col: 2 },
+    start: { row: startRow, col: startCol },
     end: {
-      row: { type: 'number', value: 14 },
-      col: { type: 'number', value: 5 }
+      row: { type: 'number', value: endRow },
+      col: { type: 'number', value: endCol }
     }
+  }
+});
+
+const finiteArea = (
+  startRow: number,
+  startCol: number,
+  endRow: number,
+  endCol: number
+) => ({
+  start: { row: startRow, col: startCol },
+  end: {
+    row: { type: 'number' as const, value: endRow },
+    col: { type: 'number' as const, value: endCol }
   }
 });
 
@@ -55,6 +72,131 @@ describe('WorkbookSelectionManager range focus', () => {
       }
     ]);
     expect(workbookManager.getLastSelection()).toEqual(address);
+  });
+
+  test('notifies selection subscribers when the target grid is already focused', () => {
+    const workbookManager = new WorkbookSelectionManager();
+    const manager = createSelectionManager();
+    manager.focus();
+    workbookManager.add(manager, { workbookName: 'Workbook1', sheetName: 'Sheet1' });
+
+    const managerNotifications: unknown[] = [];
+    const workbookNotifications: RangeAddress[][] = [];
+    manager.observeStateChange(
+      (state) => state.selections,
+      (selections) => {
+        managerNotifications.push(selections);
+      }
+    );
+    workbookManager.onSelectionChange((selections) => workbookNotifications.push(selections));
+
+    const address = rangeAddress();
+    workbookManager.focusRange(address);
+
+    expect(managerNotifications).toEqual([[finiteArea(8, 2, 14, 5)]]);
+    expect(workbookNotifications).toEqual([[address]]);
+  });
+
+  test('targets one of two mounted copies by stable viewId', () => {
+    const workbookManager = new WorkbookSelectionManager();
+    const left = createSelectionManager();
+    const right = createSelectionManager();
+    const leftRequests: ViewportRequest[] = [];
+    const rightRequests: ViewportRequest[] = [];
+    left.replaceSelections([finiteArea(1, 1, 1, 1)]);
+    right.replaceSelections([finiteArea(2, 2, 2, 2)]);
+    left.listenToViewportRequest((request) => leftRequests.push(request));
+    right.listenToViewportRequest((request) => rightRequests.push(request));
+    workbookManager.add(left, {
+      workbookName: 'Workbook1',
+      sheetName: 'Sheet1',
+      viewId: 'left-pane'
+    });
+    workbookManager.add(right, {
+      workbookName: 'Workbook1',
+      sheetName: 'Sheet1',
+      viewId: 'right-pane'
+    });
+
+    const address = rangeAddress('Workbook1', 'Sheet1', 20, 3, 24, 6);
+    expect(workbookManager.focusRange(address, { viewId: 'right-pane' })).toBe(true);
+
+    expect(left.selections).toEqual([finiteArea(1, 1, 1, 1)]);
+    expect(leftRequests).toEqual([]);
+    expect(left.hasFocus).toBe(false);
+    expect(right.selections).toEqual([finiteArea(20, 3, 24, 6)]);
+    expect(rightRequests).toEqual([
+      {
+        type: 'reveal-range',
+        range: finiteArea(20, 3, 24, 6),
+        align: 'nearest',
+        reason: 'programmatic'
+      }
+    ]);
+    expect(right.hasFocus).toBe(true);
+    expect(workbookManager.getLastFocusedSelectionManager()?.context.viewId).toBe('right-pane');
+  });
+
+  test('keeps remount selection caches isolated by viewId', () => {
+    const workbookManager = new WorkbookSelectionManager();
+    const firstLeft = createSelectionManager();
+    const firstRight = createSelectionManager();
+    const leftContext = {
+      workbookName: 'Workbook1',
+      sheetName: 'Sheet1',
+      viewId: 'left-pane'
+    };
+    const rightContext = {
+      workbookName: 'Workbook1',
+      sheetName: 'Sheet1',
+      viewId: 'right-pane'
+    };
+    const removeLeft = workbookManager.add(firstLeft, leftContext);
+    const removeRight = workbookManager.add(firstRight, rightContext);
+
+    firstLeft.replaceSelections([finiteArea(3, 4, 3, 4)]);
+    firstRight.replaceSelections([finiteArea(30, 8, 32, 10)]);
+    removeLeft();
+    removeRight();
+
+    const remountedRight = createSelectionManager();
+    const remountedLeft = createSelectionManager();
+    workbookManager.add(remountedRight, rightContext);
+    workbookManager.add(remountedLeft, leftContext);
+
+    expect(remountedLeft.selections).toEqual([finiteArea(3, 4, 3, 4)]);
+    expect(remountedRight.selections).toEqual([finiteArea(30, 8, 32, 10)]);
+  });
+
+  test('does not let the wrong duplicate view consume a queued focus request', async () => {
+    const workbookManager = new WorkbookSelectionManager();
+    const address = rangeAddress('Workbook1', 'Sheet1', 12, 4, 18, 7);
+    expect(workbookManager.focusRange(address, { viewId: 'right-pane' })).toBe(false);
+
+    const left = createSelectionManager();
+    const leftRequests: ViewportRequest[] = [];
+    left.listenToViewportRequest((request) => leftRequests.push(request));
+    workbookManager.add(left, {
+      workbookName: 'Workbook1',
+      sheetName: 'Sheet1',
+      viewId: 'left-pane'
+    });
+    await Promise.resolve();
+    expect(left.selections).toEqual([]);
+    expect(leftRequests).toEqual([]);
+
+    const right = createSelectionManager();
+    const rightRequests: ViewportRequest[] = [];
+    right.listenToViewportRequest((request) => rightRequests.push(request));
+    workbookManager.add(right, {
+      workbookName: 'Workbook1',
+      sheetName: 'Sheet1',
+      viewId: 'right-pane'
+    });
+    await Promise.resolve();
+
+    expect(right.selections).toEqual([finiteArea(12, 4, 18, 7)]);
+    expect(rightRequests).toHaveLength(1);
   });
 
   test('queues the latest range until its target sheet mounts', async () => {
@@ -127,5 +269,18 @@ describe('WorkbookSelectionManager range focus', () => {
         reason: 'programmatic'
       }
     ]);
+  });
+
+  test('can cancel a queued range focus', async () => {
+    const workbookManager = new WorkbookSelectionManager();
+    expect(workbookManager.focusRange(rangeAddress('Workbook1', 'Later'))).toBe(false);
+    workbookManager.cancelPendingFocusRange();
+
+    const manager = createSelectionManager();
+    workbookManager.add(manager, { workbookName: 'Workbook1', sheetName: 'Later' });
+    await Promise.resolve();
+
+    expect(manager.hasFocus).toBe(false);
+    expect(manager.selections).toEqual([]);
   });
 });
