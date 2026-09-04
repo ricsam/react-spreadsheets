@@ -7,7 +7,7 @@
       "devDependencies": {
         "@happy-dom/global-registrator": "^18.0.1",
         "@ricsam/formula-engine": "^0.2.15",
-        "@ricsam/selection-manager": "^0.0.32",
+        "@ricsam/selection-manager": "^0.0.33",
         "@testing-library/react": "^16.3.0",
         "@types/bun": "latest",
         "@types/react": "^19",
@@ -38,7 +38,7 @@
 
     "@ricsam/formula-engine": ["@ricsam/formula-engine@0.2.18", "", { "peerDependencies": { "typescript": "^5" } }, "sha512-2zoU5ZSnBbLqTB1hhR3gLmDyDg7FcshT/c3W74C+4JFcAyDAoKlXT5ToCPj9sHpytyfoQTSWbqrYmrn+u/p/9A=="],
 
-    "@ricsam/selection-manager": ["@ricsam/selection-manager@0.0.32", "", { "peerDependencies": { "typescript": "^5" } }, "sha512-MThLJICvQxgGwWad/joeQNx7D9obT3JVAxXJtkb9Fn1lC9GAQl8Ils4SF5RW4PWnhOPWYtxEXHcKVLHTFQ56Zw=="],
+    "@ricsam/selection-manager": ["@ricsam/selection-manager@0.0.33", "", { "peerDependencies": { "typescript": "^5" } }, "sha512-vBbWhyMJtSoWzFX4wdcle56/87VOPs+JTyOJRKW+vjdlmlTnjAtjlxfN8JFK+kGo43+bh+SaMzsecawpK1PplA=="],
 
     "@testing-library/dom": ["@testing-library/dom@10.4.1", "", { "dependencies": { "@babel/code-frame": "^7.10.4", "@babel/runtime": "^7.12.5", "@types/aria-query": "^5.0.1", "aria-query": "5.3.0", "dom-accessibility-api": "^0.5.9", "lz-string": "^1.5.0", "picocolors": "1.1.1", "pretty-format": "^27.0.2" } }, "sha512-o4PXJQidqJl82ckFaXUeoAW+XysPLauYI43Abki5hABd853iMhitooc6znOnczgbTYmEP6U6/y1ZyKAIsvMKGg=="],
 
