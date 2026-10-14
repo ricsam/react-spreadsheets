@@ -80,6 +80,7 @@ describe('FormulaSheet custom cell styles', () => {
           engine={engine}
           workbookName="Book"
           sheetName="Sheet1"
+          aria-label="Book Sheet1"
           customCellStyle={(cell, internalStyle) => {
             styledCells.push(cell.id);
             return cell.id === 'A1'
@@ -91,6 +92,9 @@ describe('FormulaSheet custom cell styles', () => {
     });
 
     const cell = document.querySelector<HTMLElement>('[data-testid="spreadsheet-cell-A1"]');
+    expect(document.querySelector('[role="grid"]')?.getAttribute('aria-label')).toBe('Book Sheet1');
+    expect(cell?.getAttribute('role')).toBe('gridcell');
+    expect(cell?.textContent).toBe('42');
     expect(styledCells).toContain('A1');
     expect(cell?.style.backgroundColor).toBe('#fef08a');
     expect(cell?.style.color).toBe('#1d4ed8');

@@ -15,6 +15,8 @@ import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -290,6 +292,7 @@ const CellComponent = React.memo(
     value,
     row,
     col,
+    domId,
     selectionManager,
     cellToPixelBase,
     getColumnWidth,
@@ -301,6 +304,7 @@ const CellComponent = React.memo(
     width,
     height
   }: {
+    domId: string;
     selectionManager: SelectionManager;
     cellToPixelBase: (row: number, col: string) => { x: number; y: number };
     getColumnWidth: (col: string) => number;
@@ -373,6 +377,12 @@ const CellComponent = React.memo(
     return (
       <div
         ref={cellRef}
+        id={domId}
+        role="gridcell"
+        aria-rowindex={row + 1}
+        aria-colindex={colIndex + 2}
+        aria-selected={isSelected}
+        data-cell-address={`${col}${row}`}
         className={cn('rsp-cell', {
           'rsp-cell-multiline': typeof value === 'string' && value.includes('\n'),
           'rsp-cell-selected': isSelected,
@@ -400,6 +410,7 @@ const CellComponent = React.memo(
           <textarea
             key={editInputVersion}
             className="rsp-cell-editor"
+            aria-label={`Edit ${col}${row}`}
             data-testid={`spreadsheet-cell-input-${col}${row}`}
             ref={inputRef}
             defaultValue={inputValue?.toString() ?? ''}
@@ -524,6 +535,10 @@ const HeaderComponent = React.memo(
     return (
       <div
         ref={headerRef}
+        role={type === 'col' ? 'columnheader' : 'rowheader'}
+        aria-colindex={type === 'col' ? index + 2 : 1}
+        aria-rowindex={type === 'row' ? index + 2 : 1}
+        aria-selected={isSelected}
         className={cn('rsp-header', `rsp-header-${type}`, {
           'rsp-header-selected': isSelected
         })}
@@ -737,6 +752,10 @@ export interface SpreadsheetProps {
   /** Extra class name applied to the outer `.rsp-root` element. */
   className?: string;
   containerProps?: React.HTMLAttributes<HTMLDivElement>;
+  /** Accessible name of the keyboard-interactive grid (not its outer wrapper). */
+  'aria-label'?: string;
+  'aria-labelledby'?: string;
+  'aria-describedby'?: string;
   cellData?: Map<string, SerializedCellValue>;
   onCellDataChange?: (data: Map<string, SerializedCellValue>) => void;
   onCellDataChangeError?: (error: unknown) => void;
@@ -873,6 +892,9 @@ export const Spreadsheet = forwardRef<
       style,
       className,
       containerProps,
+      'aria-label': ariaLabel = 'Spreadsheet',
+      'aria-labelledby': ariaLabelledBy,
+      'aria-describedby': ariaDescribedBy,
       cellData: controlledCellData,
       onCellDataChange,
       onCellDataChangeError,
@@ -897,6 +919,7 @@ export const Spreadsheet = forwardRef<
     },
     ref
   ) => {
+    const gridId = useId();
     const [{ width, height }, containerRef] = useResizeObserver();
     const [containerDivRef, setContainerDivRef] = useState<HTMLDivElement | null>(null);
     // Resolved from the mounted element so a consumer can pin a subtree to
@@ -2484,6 +2507,33 @@ export const Spreadsheet = forwardRef<
     const visibleColumnHeaders = React.useMemo(() => getVisibleColumnHeaders(), [getVisibleColumnHeaders]);
     const visibleRowHeaders = React.useMemo(() => getVisibleRowHeaders(), [getVisibleRowHeaders]);
 
+    const activeAddress = useSelectionManager(selectionManager, () => {
+      const cell = selectionManager.getTopLeftCellInSelection();
+      return cell ? `${indexToColumn(cell.col)}${cell.row + 1}` : undefined;
+    });
+    const activeCellId = visibleCells.some((cell) => `${cell.col}${cell.row}` === activeAddress)
+      ? `${gridId}-cell-${activeAddress}`
+      : undefined;
+    // Older supported selection-manager versions do not expose this bridge.
+    // Keep the grid semantics useful without requiring an unreleased peer.
+    const accessibilityManager = selectionManager as SelectionManager & {
+      setInputCaptureAccessibility?: (options: {
+        label?: string;
+        controls?: string;
+        activeDescendant?: string;
+        describedBy?: string;
+      }) => void;
+    };
+    useLayoutEffect(() => {
+      accessibilityManager.setInputCaptureAccessibility?.({
+        label: `${ariaLabel} keyboard input`,
+        controls: gridId,
+        activeDescendant: activeCellId,
+        describedBy: ariaDescribedBy
+      });
+      return () => accessibilityManager.setInputCaptureAccessibility?.({});
+    }, [accessibilityManager, ariaLabel, ariaDescribedBy, gridId, activeCellId]);
+
     const hasFocus = useSelectionManager(selectionManager, () => selectionManager.hasFocus);
     const referenceSelection = useSelectionManager(
       selectionManager,
@@ -2594,7 +2644,23 @@ export const Spreadsheet = forwardRef<
                 width,
                 height
               }}
+              id={gridId}
+              role="grid"
+              aria-activedescendant={activeCellId}
+              aria-label={ariaLabel}
+              aria-labelledby={ariaLabelledBy}
+              aria-describedby={ariaDescribedBy}
+              aria-rowcount={finiteRowCount === undefined ? -1 : finiteRowCount + 1}
+              aria-colcount={finiteColumnCount === undefined ? -1 : finiteColumnCount + 1}
+              aria-multiselectable="true"
               tabIndex={0}
+              onFocus={(event) => {
+                // Tab must activate keyboard navigation just as a pointer click does.
+                // Do not refocus when an inline editor or overlay receives focus.
+                if (event.target === event.currentTarget && !selectionManager.hasFocus) {
+                  selectionManager.focus();
+                }
+              }}
             >
               {/* Resolves the themed gridline color for the canvas. Kept in the
                   DOM (not `display: none`) so the value stays computable. */}
@@ -2613,6 +2679,7 @@ export const Spreadsheet = forwardRef<
 
               <canvas
                 ref={canvasRef}
+                aria-hidden="true"
                 className="rsp-canvas"
                 data-testid="spreadsheet-canvas"
                 style={{ width, height }}
@@ -2621,6 +2688,8 @@ export const Spreadsheet = forwardRef<
               {/* Column headers */}
               <div
                 className="rsp-column-headers"
+                role="row"
+                aria-rowindex={1}
                 data-testid="spreadsheet-column-headers"
                 style={{
                   left: gridDims.headerWidth,
@@ -2673,8 +2742,16 @@ export const Spreadsheet = forwardRef<
                 >
                   {visibleRowHeaders.map(({ row, rowIndex }) => {
                     return (
-                      <HeaderComponent
+                      <div
                         key={row}
+                        role="row"
+                        aria-rowindex={row + 1}
+                        // Headers and cells use separate clipping/transform layers.
+                        // Own the mounted cells to expose one logical ARIA row.
+                        aria-owns={visibleCells.filter((cell) => cell.row === row)
+                          .map((cell) => `${gridId}-cell-${cell.col}${cell.row}`).join(' ') || undefined}
+                      >
+                      <HeaderComponent
                         index={rowIndex}
                         type="row"
                         selectionManager={selectionManager}
@@ -2685,6 +2762,7 @@ export const Spreadsheet = forwardRef<
                         handleRowResizeStart={handleRowResizeStart}
                         handleRowResizeDoubleClick={handleRowResizeDoubleClick}
                       />
+                      </div>
                     );
                   })}
                 </div>
@@ -2712,6 +2790,7 @@ export const Spreadsheet = forwardRef<
                 {visibleCells.map((cell) => (
                   <CellComponent
                     key={`${cell.col}${cell.row}`}
+                    domId={`${gridId}-cell-${cell.col}${cell.row}`}
                     value={cellData.get(`${cell.col}${cell.row}`) ?? ''}
                     row={cell.row}
                     col={cell.col}

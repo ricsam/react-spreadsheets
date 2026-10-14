@@ -344,6 +344,32 @@ Wheel events originating inside a floating overlay are left to that overlay, so
 scrollable editors and other interactive overlay content keep their native
 scroll behavior.
 
+## Accessibility and browser automation
+
+Pass `aria-label`, `aria-labelledby`, and/or `aria-describedby` directly to
+`Spreadsheet`, `FormulaSheet`, or `FormulaWorkbook` to name/describe the inner
+keyboard grid. The default label is `Spreadsheet`; `containerProps` still targets
+the outer wrapper. Tab focus activates the existing selection-manager keyboard
+navigation without adding every virtual cell to the tab order.
+
+Mounted cells expose `role="gridcell"`, `aria-selected`, and stable-within-view
+IDs. Their accessible names come from rendered content (including custom
+renderers); use `[data-cell-address="B2"]` for an unambiguous A1 locator. Inline
+editors are named `Edit B2`. Headers expose `columnheader` / `rowheader` roles.
+ARIA coordinates/counts include the header row and column: A1 is row 2, column 2;
+unknown/unbounded counts are `-1`. Logical rows own their cells with `aria-owns`
+because frozen headers and cells render in separate clipping layers.
+
+Only mounted cells are exposed. Reveal offscreen cells with `scrollToCell`,
+`scrollToRange`, or `WorkbookSelectionManager.focusRange` before locating them.
+`aria-activedescendant` is omitted when the selection anchor is not mounted.
+With selection-manager versions providing `setInputCaptureAccessibility`, the
+same active-cell relationship and grid label are forwarded to its focused
+keyboard-capture textarea. Older peers keep grid semantics and keyboard behavior
+but do not announce this relationship from that textarea. This is not a claim
+of complete screen-reader support; custom overlays and renderers must supply
+their own accessible controls.
+
 ## Development
 
 ```bash

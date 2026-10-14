@@ -57,6 +57,73 @@ describe('spreadsheet navigation and reference selection', () => {
     await act(async () => root?.render(node));
   };
 
+  test('exposes a named virtual grid with logical rows, coordinates and selection', async () => {
+    let manager: SelectionManager | undefined;
+    await mount(<Spreadsheet aria-label="Budget" rowCount={2} columnCount={3}
+      cellData={new Map([['A1', 'Revenue']])}
+      selection={{ effects: (value) => { manager = value; } }} />);
+    const grid = document.querySelector<HTMLElement>('[role="grid"]')!;
+    expect(grid.getAttribute('aria-label')).toBe('Budget');
+    expect(grid.getAttribute('aria-rowcount')).toBe('3');
+    expect(grid.getAttribute('aria-colcount')).toBe('4');
+    expect(grid.getAttribute('aria-multiselectable')).toBe('true');
+    const cell = grid.querySelector('[data-cell-address="A1"]')!;
+    expect(cell.getAttribute('role')).toBe('gridcell');
+    expect(cell.getAttribute('aria-rowindex')).toBe('2');
+    expect(cell.getAttribute('aria-colindex')).toBe('2');
+    expect(cell.textContent).toBe('Revenue');
+    const row = grid.querySelector('[role="row"][aria-rowindex="2"]')!;
+    expect(row.getAttribute('aria-owns')?.split(' ')).toContain(cell.id);
+    expect(row.querySelector('[role="rowheader"]')?.textContent).toBe('1');
+    expect(grid.querySelector('[role="columnheader"]')?.textContent).toBe('A');
+    await act(async () => { grid.focus(); });
+    expect(manager?.hasFocus).toBe(true);
+    await act(async () => { manager?.replaceSelections([{ start: { row: 0, col: 0 }, end: { row: { type: 'number', value: 0 }, col: { type: 'number', value: 0 } } }]); });
+    expect(cell.getAttribute('aria-selected')).toBe('true');
+    expect(grid.getAttribute('aria-activedescendant')).toBe(cell.id);
+    await act(async () => { manager?.replaceSelections([{ start: { row: 1, col: 1 }, end: { row: { type: 'number', value: 1 }, col: { type: 'number', value: 1 } } }]); });
+    expect(cell.getAttribute('aria-selected')).toBe('false');
+    expect(grid.querySelector('[data-cell-address="B2"]')?.getAttribute('aria-selected')).toBe('true');
+    await act(async () => { manager?.editCell(1, 1); });
+    expect(grid.querySelector('textarea[aria-label="Edit B2"]')).not.toBeNull();
+    expect(manager?.isEditingCell(1, 1)).toBe(true);
+  });
+
+  test('forwards mounted active-cell semantics to capable keyboard capture peers', async () => {
+    const updateCapture = mock(() => {});
+    let manager: SelectionManager | undefined;
+    await mount(<Spreadsheet aria-label="Forecast" aria-describedby="help"
+      rowCount={2} columnCount={2}
+      selection={{ effects: (value) => {
+        manager = value;
+        Object.assign(value, { setInputCaptureAccessibility: updateCapture });
+      } }} />);
+    await act(async () => {
+      manager?.replaceSelections([{ start: { row: 1, col: 1 }, end: {
+        row: { type: 'number', value: 1 }, col: { type: 'number', value: 1 }
+      } }]);
+    });
+    const grid = document.querySelector('[role="grid"]')!;
+    expect(updateCapture).toHaveBeenLastCalledWith({
+      label: 'Forecast keyboard input', controls: grid.id,
+      activeDescendant: grid.querySelector('[data-cell-address="B2"]')!.id,
+      describedBy: 'help'
+    });
+    await act(async () => root?.unmount());
+    root = undefined;
+    expect(updateCapture).toHaveBeenLastCalledWith({});
+  });
+
+  test('unknown dimensions and duplicate views have safe ARIA identities', async () => {
+    await mount(<><Spreadsheet /><Spreadsheet /></>);
+    const grids = document.querySelectorAll('[role="grid"]');
+    expect(grids.length).toBe(2);
+    expect(grids[0]?.getAttribute('aria-rowcount')).toBe('-1');
+    expect(grids[0]?.getAttribute('aria-colcount')).toBe('-1');
+    const ids = Array.from(document.querySelectorAll('[role="gridcell"]'), (cell) => cell.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   test('finite row and column counts constrain rendering and selection bounds', async () => {
     await mount(
       <Spreadsheet
@@ -170,6 +237,12 @@ describe('spreadsheet navigation and reference selection', () => {
       'translate(-240px, -510px) scale(1)'
     );
     expect(manager?.selections.at(-1)?.start).toEqual({ row: 0, col: 0 });
+    expect(document.querySelector('[role="grid"]')?.hasAttribute('aria-activedescendant')).toBe(false);
+    for (const row of document.querySelectorAll('[role="row"][aria-owns]')) {
+      for (const id of row.getAttribute('aria-owns')!.split(' ')) {
+        expect(document.getElementById(id)).not.toBeNull();
+      }
+    }
   });
 
   test('scrollToRange normalizes reversed ranges and clamps them to finite bounds', async () => {
