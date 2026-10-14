@@ -43,6 +43,41 @@ const finiteArea = (
 });
 
 describe('WorkbookSelectionManager range focus', () => {
+  test('unrelated initial updates do not activate saved pane selections', () => {
+    const workbook = new WorkbookSelectionManager();
+    const notifications: RangeAddress[][] = [];
+    workbook.onSelectionChange((value) => notifications.push(value));
+    const launch = createSelectionManager();
+    const dropped = createSelectionManager();
+    launch.replaceSelections([finiteArea(11, 3, 11, 3)]);
+    dropped.replaceSelections([finiteArea(0, 0, 0, 0)]);
+    // Also cover re-registering a manager that already has logical focus.
+    launch.focus();
+    const stop = workbook.add(launch, { workbookName: 'Launch', sheetName: 'Sheet1', viewId: 'left' });
+    workbook.add(dropped, { workbookName: 'Dropped', sheetName: 'Sheet1', viewId: 'right' });
+    launch.mouseUp();
+    dropped.mouseUp();
+    expect(notifications).toEqual([]);
+    expect(workbook.getLastFocusedSelectionManager()).toBeNull();
+    stop();
+    workbook.add(launch, { workbookName: 'Launch', sheetName: 'Sheet1', viewId: 'left' });
+    launch.mouseUp();
+    expect(notifications).toEqual([]);
+    launch.blur();
+    launch.focus();
+    expect(notifications).toHaveLength(1);
+    expect(workbook.getLastFocusedSelectionManager()?.sm).toBe(launch);
+    expect(workbook.focusCell('Dropped', 'Sheet1', 99, 25, { viewId: 'right' })).toBe(true);
+    expect(notifications).toHaveLength(2);
+    expect(dropped.selections).toEqual([finiteArea(99, 25, 99, 25)]);
+    launch.mouseUp();
+    dropped.mouseUp();
+    expect(notifications).toHaveLength(2);
+    expect(workbook.getLastFocusedSelectionManager()?.sm).toBe(dropped);
+    dropped.replaceSelections([finiteArea(98, 25, 98, 25)]);
+    expect(notifications).toHaveLength(3);
+  });
+
   test('focuses, selects and reveals a range on a mounted sheet', () => {
     const workbookManager = new WorkbookSelectionManager();
     const manager = createSelectionManager();

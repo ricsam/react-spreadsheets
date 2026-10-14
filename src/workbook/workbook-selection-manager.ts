@@ -202,10 +202,16 @@ export class WorkbookSelectionManager {
       manager.replaceSelections(cachedSelections);
     }
 
-    // Listen to focus changes
+    // observeStateChange invokes its first callback on any subsequent update,
+    // even if the selected value is unchanged. Seed baselines so unrelated
+    // window mouseup/blur events cannot activate a view's saved selection.
+    let previousFocus = manager.getState().hasFocus;
+    let previousSelections = JSON.stringify(manager.getState().selections);
     const focusCleanup = manager.observeStateChange(
       (state) => state.hasFocus,
       (hasFocus) => {
+        if (hasFocus === previousFocus) return;
+        previousFocus = hasFocus;
         if (hasFocus && !this.applyingRangeFocus.has(manager)) {
           this.rememberSelections(manager, registeredContext);
           this.emitChange();
@@ -217,6 +223,8 @@ export class WorkbookSelectionManager {
     const selectionCleanup = manager.observeStateChange(
       (state) => JSON.stringify(state.selections),
       (selectionsJson) => {
+        if (selectionsJson === previousSelections) return;
+        previousSelections = selectionsJson;
         if (this.applyingRangeFocus.has(manager)) return;
         const selections = JSON.parse(selectionsJson) as SMArea[];
         if (selections && selections.length > 0) {
