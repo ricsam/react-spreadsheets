@@ -609,6 +609,235 @@ export function FormulaSheet({
     ]
   );
 
+  // Selection changes must not invalidate engine rendering. Invalidate on every
+  // engine update (including other sheets): conditional styles can depend on any
+  // formula input, not just this sheet's content. Bound the cache for long scrolls.
+  const renderCallbacks = useMemo(() => {
+    type RenderStyle = CellStyle & { fontFamily?: string };
+    const metadata = engine.getWorkbookMetadata(workbookName) as
+      { defaultCellStyle?: RenderStyle } | undefined;
+    const defaults = metadata?.defaultCellStyle;
+    const fontStyle = (style?: RenderStyle): React.CSSProperties => ({
+      ...(style?.fontFamily && { fontFamily: style.fontFamily }),
+      ...(style?.bold !== undefined && { fontWeight: style.bold ? 'bold' : 'normal' }),
+      ...(style?.italic !== undefined && { fontStyle: style.italic ? 'italic' : 'normal' }),
+      ...(style?.underline !== undefined && { textDecoration: style.underline ? 'underline' : 'none' })
+    });
+    const styles = new Map<string, RenderStyle | undefined>();
+    const getStyle = (cell: CellRenderContext): RenderStyle | undefined => {
+      if (styles.has(cell.id)) return styles.get(cell.id);
+      const explicit = engine.getCellStyle({
+        sheetName, workbookName, colIndex: cell.colIndex, rowIndex: cell.rowIndex
+      });
+      const style = defaults ? { ...defaults, ...explicit } : explicit;
+      if (styles.size >= 4096) styles.clear();
+      styles.set(cell.id, style);
+      return style;
+    };
+    return {
+      customCellStyle: (cell: CellRenderContext) => {
+        // Check for conditional styling first
+        const conditionalStyle = getStyle(cell);
+
+        const tableInfo = engine.isCellInTable({
+          sheetName,
+          colIndex: cell.colIndex,
+          rowIndex: cell.rowIndex,
+          workbookName
+        });
+
+        if (!tableInfo) {
+          // Not in a table, apply the engine style first and always give the
+          // consumer a chance to augment it. Reference highlights, search
+          // results and other transient decorations commonly target plain
+          // cells, so limiting this callback to table cells makes the API
+          // ineffective for those use cases.
+          const style: React.CSSProperties = conditionalStyle
+            ? {
+                ...(conditionalStyle.backgroundColor && {
+                  backgroundColor: conditionalStyle.backgroundColor
+                }),
+                ...(conditionalStyle.color && {
+                  color: conditionalStyle.color
+                }),
+                ...(conditionalStyle.fontSize && {
+                  fontSize: conditionalStyle.fontSize
+                }),
+                ...fontStyle(conditionalStyle),
+                ...getBorderCellStyle(conditionalStyle),
+                ...getWrapCellStyle(conditionalStyle)
+              }
+            : {};
+
+          return customCellStyle ? customCellStyle(cell, style) : style;
+        }
+
+        const isHeaderRow = cell.rowIndex === tableInfo.start.rowIndex;
+        const isFirstColumn = cell.colIndex === tableInfo.start.colIndex;
+        const isLastColumn = cell.colIndex === tableInfo.start.colIndex + tableInfo.headers.size - 1;
+
+        // Calculate if this is the last row of the table
+        const isLastRow =
+          tableInfo.endRow.type === 'number' ? cell.rowIndex === tableInfo.endRow.value : false; // For infinite tables, we don't style the last row differently
+
+        // Excel-like table styling. These custom properties are declared in
+        // the package stylesheet (`styles.css`) and resolve through
+        // `light-dark()`, so tables follow the active color scheme.
+        const style: React.CSSProperties = {
+          border: '1px solid var(--_rsp-table-border-light)'
+        };
+
+        if (isHeaderRow) {
+          // Header row styling - accent theme like Excel
+          style.backgroundColor = 'var(--_rsp-table-header-bg)';
+          style.color = 'var(--_rsp-table-header-color)';
+          style.fontWeight = 'bold';
+          style.borderBottom = '2px solid var(--_rsp-table-header-border)';
+        } else {
+          // Data rows - alternating background
+          const dataRowIndex = cell.rowIndex - tableInfo.start.rowIndex - 1;
+          if (dataRowIndex % 2 === 0) {
+            style.backgroundColor = 'var(--_rsp-table-even-row-bg)';
+          } else {
+            style.backgroundColor = 'var(--_rsp-table-odd-row-bg)';
+          }
+        }
+
+        // Border styling
+        if (isFirstColumn) {
+          style.borderLeft = '2px solid var(--_rsp-table-border-color)';
+        }
+        if (isLastColumn) {
+          style.borderRight = '2px solid var(--_rsp-table-border-color)';
+        }
+        if (isHeaderRow) {
+          style.borderTop = '2px solid var(--_rsp-table-border-color)';
+        }
+        if (isLastRow) {
+          style.borderBottom = '2px solid var(--_rsp-table-border-color)';
+        }
+
+        // Merge conditional styling with table styling
+        // User custom styles can now override table header styles
+        if (conditionalStyle?.backgroundColor) {
+          style.backgroundColor = conditionalStyle.backgroundColor;
+        }
+        // Apply text color from conditional styling (overrides header white text if user wants)
+        if (conditionalStyle?.color) {
+          style.color = conditionalStyle.color;
+        }
+        // Apply font size from conditional styling
+        if (conditionalStyle?.fontSize) {
+          style.fontSize = conditionalStyle.fontSize;
+        }
+        Object.assign(style, fontStyle(conditionalStyle));
+        Object.assign(style, getBorderCellStyle(conditionalStyle));
+        Object.assign(style, getWrapCellStyle(conditionalStyle));
+
+        if (customCellStyle) {
+          return customCellStyle(cell, style);
+        }
+
+        return style;
+      },
+      customCellRenderer: (cell: CellRenderContext) => {
+        const cellRef = getCellReference({
+          colIndex: cell.colIndex,
+          rowIndex: cell.rowIndex
+        });
+
+        // When showFormulas is enabled, display the raw cell content (formula string)
+        // instead of the computed value from the engine
+        const value = showFormulas
+          ? sheet?.content.get(cellRef)
+          : engine.getCellValue(
+              {
+                sheetName,
+                workbookName,
+                colIndex: cell.colIndex,
+                rowIndex: cell.rowIndex
+              },
+              verboseErrors
+            );
+
+        const conditionalStyle = getStyle(cell);
+
+        const conditionalStyleProps: React.CSSProperties = {};
+        if (conditionalStyle?.backgroundColor) {
+          conditionalStyleProps.backgroundColor = conditionalStyle.backgroundColor;
+        }
+        if (conditionalStyle?.color) {
+          conditionalStyleProps.color = conditionalStyle.color;
+        }
+        if (conditionalStyle?.fontSize) {
+          conditionalStyleProps.fontSize = conditionalStyle.fontSize;
+        }
+        Object.assign(conditionalStyleProps, fontStyle(conditionalStyle), getWrapContentStyle(conditionalStyle));
+
+        let defaultElement: React.ReactNode;
+        if (showFormulas) {
+          // In show-formulas mode, always render raw content as-is (no number formatting)
+          defaultElement = (
+            <div
+              data-conditional-background={conditionalStyle?.backgroundColor}
+              data-conditional-text-color={conditionalStyle?.color}
+              style={conditionalStyleProps}
+            >
+              {getCellDisplayText(value)}
+            </div>
+          );
+        } else if (typeof value === 'boolean') {
+          defaultElement = (
+            <div
+              data-conditional-background={conditionalStyle?.backgroundColor}
+              data-conditional-text-color={conditionalStyle?.color}
+              data-type="boolean"
+              style={{
+                ...conditionalStyleProps,
+                width: '100%',
+                textAlign: 'center',
+                fontFamily: conditionalStyle?.fontFamily ?? "'Courier New', monospace"
+              }}
+            >
+              {value ? 'TRUE' : 'FALSE'}
+            </div>
+          );
+        } else if (typeof value === 'number') {
+          // Format numbers nicely
+          defaultElement = (
+            <div
+              data-conditional-background={conditionalStyle?.backgroundColor}
+              data-conditional-text-color={conditionalStyle?.color}
+              data-type="number"
+              style={{ ...conditionalStyleProps, width: '100%', textAlign: 'right' }}
+            >
+              {value.toLocaleString('en-US', {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 10
+              })}
+            </div>
+          );
+        } else {
+          defaultElement = (
+            <div
+              data-conditional-background={conditionalStyle?.backgroundColor}
+              data-conditional-text-color={conditionalStyle?.color}
+              style={{ ...conditionalStyleProps, width: '100%', textAlign: 'left' }}
+            >
+              {getCellDisplayText(value)}
+            </div>
+          );
+        }
+
+        if (customCellRenderer) {
+          return customCellRenderer(cell, defaultElement);
+        }
+        return defaultElement;
+      }
+    };
+  }, [engine, state, workbookName, sheetName, sheet, showFormulas, verboseErrors,
+      customCellStyle, customCellRenderer]);
+
   // If the sheet doesn't exist (e.g. during a rename where the engine has
   // updated but React hasn't re-rendered with the new sheet name yet),
   // render nothing. The next render will have the correct sheet name.
@@ -655,243 +884,7 @@ export function FormulaSheet({
                 }
               : {}) as React.HTMLAttributes<HTMLDivElement>
           }
-          customCellStyle={(cell) => {
-            // Check for conditional styling first
-            const conditionalStyle = engine.getCellStyle({
-              sheetName,
-              colIndex: cell.colIndex,
-              rowIndex: cell.rowIndex,
-              workbookName
-            });
-
-            const tableInfo = engine.isCellInTable({
-              sheetName,
-              colIndex: cell.colIndex,
-              rowIndex: cell.rowIndex,
-              workbookName
-            });
-
-            if (!tableInfo) {
-              // Not in a table, apply the engine style first and always give the
-              // consumer a chance to augment it. Reference highlights, search
-              // results and other transient decorations commonly target plain
-              // cells, so limiting this callback to table cells makes the API
-              // ineffective for those use cases.
-              const style: React.CSSProperties = conditionalStyle
-                ? {
-                    ...(conditionalStyle.backgroundColor && {
-                      backgroundColor: conditionalStyle.backgroundColor
-                    }),
-                    ...(conditionalStyle.color && {
-                      color: conditionalStyle.color
-                    }),
-                    ...(conditionalStyle.fontSize && {
-                      fontSize: conditionalStyle.fontSize
-                    }),
-                    ...(conditionalStyle.bold && {
-                      fontWeight: 'bold' as const
-                    }),
-                    ...(conditionalStyle.italic && {
-                      fontStyle: 'italic' as const
-                    }),
-                    ...(conditionalStyle.underline && {
-                      textDecoration: 'underline'
-                    }),
-                    ...getBorderCellStyle(conditionalStyle),
-                    ...getWrapCellStyle(conditionalStyle)
-                  }
-                : {};
-
-              return customCellStyle ? customCellStyle(cell, style) : style;
-            }
-
-            const isHeaderRow = cell.rowIndex === tableInfo.start.rowIndex;
-            const isFirstColumn = cell.colIndex === tableInfo.start.colIndex;
-            const isLastColumn = cell.colIndex === tableInfo.start.colIndex + tableInfo.headers.size - 1;
-
-            // Calculate if this is the last row of the table
-            const isLastRow =
-              tableInfo.endRow.type === 'number' ? cell.rowIndex === tableInfo.endRow.value : false; // For infinite tables, we don't style the last row differently
-
-            // Excel-like table styling. These custom properties are declared in
-            // the package stylesheet (`styles.css`) and resolve through
-            // `light-dark()`, so tables follow the active color scheme.
-            const style: React.CSSProperties = {
-              border: '1px solid var(--_rsp-table-border-light)'
-            };
-
-            if (isHeaderRow) {
-              // Header row styling - accent theme like Excel
-              style.backgroundColor = 'var(--_rsp-table-header-bg)';
-              style.color = 'var(--_rsp-table-header-color)';
-              style.fontWeight = 'bold';
-              style.borderBottom = '2px solid var(--_rsp-table-header-border)';
-            } else {
-              // Data rows - alternating background
-              const dataRowIndex = cell.rowIndex - tableInfo.start.rowIndex - 1;
-              if (dataRowIndex % 2 === 0) {
-                style.backgroundColor = 'var(--_rsp-table-even-row-bg)';
-              } else {
-                style.backgroundColor = 'var(--_rsp-table-odd-row-bg)';
-              }
-            }
-
-            // Border styling
-            if (isFirstColumn) {
-              style.borderLeft = '2px solid var(--_rsp-table-border-color)';
-            }
-            if (isLastColumn) {
-              style.borderRight = '2px solid var(--_rsp-table-border-color)';
-            }
-            if (isHeaderRow) {
-              style.borderTop = '2px solid var(--_rsp-table-border-color)';
-            }
-            if (isLastRow) {
-              style.borderBottom = '2px solid var(--_rsp-table-border-color)';
-            }
-
-            // Merge conditional styling with table styling
-            // User custom styles can now override table header styles
-            if (conditionalStyle?.backgroundColor) {
-              style.backgroundColor = conditionalStyle.backgroundColor;
-            }
-            // Apply text color from conditional styling (overrides header white text if user wants)
-            if (conditionalStyle?.color) {
-              style.color = conditionalStyle.color;
-            }
-            // Apply font size from conditional styling
-            if (conditionalStyle?.fontSize) {
-              style.fontSize = conditionalStyle.fontSize;
-            }
-            // Apply bold from conditional styling (merge with header row bold)
-            if (conditionalStyle?.bold) {
-              style.fontWeight = 'bold';
-            }
-            // Apply italic from conditional styling
-            if (conditionalStyle?.italic) {
-              style.fontStyle = 'italic';
-            }
-            // Apply underline from conditional styling
-            if (conditionalStyle?.underline) {
-              style.textDecoration = 'underline';
-            }
-            Object.assign(style, getBorderCellStyle(conditionalStyle));
-            Object.assign(style, getWrapCellStyle(conditionalStyle));
-
-            if (customCellStyle) {
-              return customCellStyle(cell, style);
-            }
-
-            return style;
-          }}
-          customCellRenderer={(cell) => {
-            const cellRef = getCellReference({
-              colIndex: cell.colIndex,
-              rowIndex: cell.rowIndex
-            });
-
-            // When showFormulas is enabled, display the raw cell content (formula string)
-            // instead of the computed value from the engine
-            const value = showFormulas
-              ? sheet?.content.get(cellRef)
-              : engine.getCellValue(
-                  {
-                    sheetName,
-                    workbookName,
-                    colIndex: cell.colIndex,
-                    rowIndex: cell.rowIndex
-                  },
-                  verboseErrors
-                );
-
-            const conditionalStyle = engine.getCellStyle({
-              sheetName,
-              colIndex: cell.colIndex,
-              rowIndex: cell.rowIndex,
-              workbookName
-            });
-
-            const conditionalStyleProps: React.CSSProperties = {};
-            if (conditionalStyle?.backgroundColor) {
-              conditionalStyleProps.backgroundColor = conditionalStyle.backgroundColor;
-            }
-            if (conditionalStyle?.color) {
-              conditionalStyleProps.color = conditionalStyle.color;
-            }
-            if (conditionalStyle?.fontSize) {
-              conditionalStyleProps.fontSize = conditionalStyle.fontSize;
-            }
-            if (conditionalStyle?.bold) {
-              conditionalStyleProps.fontWeight = 'bold';
-            }
-            if (conditionalStyle?.italic) {
-              conditionalStyleProps.fontStyle = 'italic';
-            }
-            if (conditionalStyle?.underline) {
-              conditionalStyleProps.textDecoration = 'underline';
-            }
-            Object.assign(conditionalStyleProps, getWrapContentStyle(conditionalStyle));
-
-            let defaultElement: React.ReactNode;
-            if (showFormulas) {
-              // In show-formulas mode, always render raw content as-is (no number formatting)
-              defaultElement = (
-                <div
-                  data-conditional-background={conditionalStyle?.backgroundColor}
-                  data-conditional-text-color={conditionalStyle?.color}
-                  style={conditionalStyleProps}
-                >
-                  {getCellDisplayText(value)}
-                </div>
-              );
-            } else if (typeof value === 'boolean') {
-              defaultElement = (
-                <div
-                  data-conditional-background={conditionalStyle?.backgroundColor}
-                  data-conditional-text-color={conditionalStyle?.color}
-                  data-type="boolean"
-                  style={{
-                    ...conditionalStyleProps,
-                    width: '100%',
-                    textAlign: 'center',
-                    fontFamily: "'Courier New', monospace"
-                  }}
-                >
-                  {value ? 'TRUE' : 'FALSE'}
-                </div>
-              );
-            } else if (typeof value === 'number') {
-              // Format numbers nicely
-              defaultElement = (
-                <div
-                  data-conditional-background={conditionalStyle?.backgroundColor}
-                  data-conditional-text-color={conditionalStyle?.color}
-                  data-type="number"
-                  style={{ ...conditionalStyleProps, width: '100%', textAlign: 'right' }}
-                >
-                  {value.toLocaleString('en-US', {
-                    minimumFractionDigits: 0,
-                    maximumFractionDigits: 10
-                  })}
-                </div>
-              );
-            } else {
-              defaultElement = (
-                <div
-                  data-conditional-background={conditionalStyle?.backgroundColor}
-                  data-conditional-text-color={conditionalStyle?.color}
-                  style={{ ...conditionalStyleProps, width: '100%', textAlign: 'left' }}
-                >
-                  {getCellDisplayText(value)}
-                </div>
-              );
-            }
-
-            if (customCellRenderer) {
-              return customCellRenderer(cell, defaultElement);
-            }
-            return defaultElement;
-          }}
+          {...renderCallbacks}
         />
       </div>
     </div>

@@ -22,6 +22,22 @@ bun add @ricsam/formula-engine
 
 `react`, `react-dom` and `@ricsam/selection-manager` are peer dependencies.
 
+## Formula rendering and imported defaults
+
+`FormulaSheet` shares engine style reads between its cell container and content,
+with a bounded cache invalidated on **every engine update**, including changes to
+other sheets, styles, metadata, undo and redo. Selection-only changes leave
+unchanged cells alone. Consumer style/render callbacks still receive current
+`isSelected` and `isBeingEdited` values; keep callback identities stable (for
+example with `useCallback`) to avoid invalidating all visible cells unnecessarily.
+
+Workbook metadata may contain `defaultCellStyle` (a `CellStyle`, optionally with
+`fontFamily: string`). These imported defaults are applied beneath explicit
+engine cell styles. Font sizes use the engine's CSS-pixel convention. False
+bold/italic/underline values override defaults. Without this metadata the existing
+CSS/application defaults remain unchanged; fonts are never inferred from nearby
+cells. Existing saved imports need reimporting to recover missing source defaults.
+
 ## Usage
 
 Import the stylesheet once, near your app root:
