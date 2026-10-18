@@ -26,7 +26,7 @@ import type {
   SpreadsheetRowHeights
 } from '../types';
 import type { WorkbookSelectionManager } from './workbook-selection-manager';
-import { cn } from '../utils/cn';
+import { SheetNavigation } from './sheet-navigation';
 import { useSchemeRoot } from '../utils/use-scheme-root';
 import { type CellDataUpdate, ClipboardUtils } from '../clipboard/clipboard-manager';
 import { normalizeBorderSides, hasAnyBorderSide } from './border-sides';
@@ -977,11 +977,9 @@ export function FormulaWorkbook({
   ...rest
 }: FormulaWorkbookProps) {
   const schemeRoot = useSchemeRoot();
-  const state = useEngine(engine);
-  const [renamingSheet, setRenamingSheet] = useState<string | null>(null);
-  const [newSheetName, setNewSheetName] = useState<string>('');
+  useEngine(engine);
+  const panelId = React.useId();
   const [spreadsheetZoom, setSpreadsheetZoom] = useState(1);
-  const renameCommittedRef = useRef(false);
 
   const clipboardManager = React.useMemo(
     () => controlledClipboardManager ?? new WorkbookClipboardManager(engine!),
@@ -1020,14 +1018,11 @@ export function FormulaWorkbook({
   const handleActiveSheetChange = useCallback(
     (sheetName: string) => {
       if (onActiveSheetChange) {
-        // Controlled mode
         onActiveSheetChange(sheetName);
-      } else {
-        // Uncontrolled mode
-        setInternalActiveSheet(sheetName);
       }
+      if (controlledActiveSheet === undefined) setInternalActiveSheet(sheetName);
     },
-    [onActiveSheetChange]
+    [onActiveSheetChange, controlledActiveSheet]
   );
 
   // Get overlay and layout data for the active sheet
@@ -1067,62 +1062,13 @@ export function FormulaWorkbook({
 
   // Add new sheet handler
   const addSheet = () => {
-    try {
-      const newSheet = engine.createSheet({
-        workbookName
-      });
-
-      // Switch to the new sheet
-      handleActiveSheetChange(newSheet.name);
-    } catch (error) {
-      console.error('Failed to add sheet:', error);
-    }
+    const newSheet = engine.createSheet({ workbookName });
+    handleActiveSheetChange(newSheet.name);
   };
 
-  // Start renaming a sheet
-  const startRenaming = (sheetName: string) => {
-    renameCommittedRef.current = false;
-    setRenamingSheet(sheetName);
-    setNewSheetName(sheetName);
-  };
-
-  // Cancel renaming
-  const cancelRenaming = () => {
-    setRenamingSheet(null);
-    setNewSheetName('');
-  };
-
-  // Rename sheet
   const renameSheet = (oldName: string, newName: string) => {
-    // Guard against double-fire (e.g. onBlur firing after onKeyDown already committed)
-    if (renameCommittedRef.current) {
-      cancelRenaming();
-      return;
-    }
-
-    if (!newName.trim() || newName.trim() === oldName) {
-      cancelRenaming();
-      return;
-    }
-
-    try {
-      renameCommittedRef.current = true;
-      engine.renameSheet({
-        workbookName,
-        sheetName: oldName,
-        newSheetName: newName.trim()
-      });
-
-      // Update active sheet if we renamed the active one
-      if (activeSheet === oldName) {
-        handleActiveSheetChange(newName.trim());
-      }
-
-      cancelRenaming();
-    } catch (error) {
-      console.error('Failed to rename sheet:', error);
-      cancelRenaming();
-    }
+    engine.renameSheet({ workbookName, sheetName: oldName, newSheetName: newName });
+    if (activeSheet === oldName) handleActiveSheetChange(newName);
   };
 
   // Delete sheet
@@ -1132,19 +1078,16 @@ export function FormulaWorkbook({
       return;
     }
 
-    try {
-      engine.removeSheet({ workbookName, sheetName });
+    engine.removeSheet({ workbookName, sheetName });
 
-      // If we deleted the active sheet, switch to the first available sheet
-      if (activeSheet === sheetName) {
-        const remainingSheets = sheetNames.filter((name) => name !== sheetName);
-        const nextSheet = remainingSheets[0];
-        if (nextSheet) {
-          handleActiveSheetChange(nextSheet);
-        }
+    // If we deleted the active sheet, select the next sheet, or the previous one at the end.
+    if (activeSheet === sheetName) {
+      const remainingSheets = sheetNames.filter((name) => name !== sheetName);
+      const nextSheet =
+        remainingSheets[Math.min(sheetNames.indexOf(sheetName), remainingSheets.length - 1)];
+      if (nextSheet) {
+        handleActiveSheetChange(nextSheet);
       }
-    } catch (error) {
-      console.error('Failed to delete sheet:', error);
     }
   };
 
@@ -1175,7 +1118,7 @@ export function FormulaWorkbook({
       </div>
 
       {/* Spreadsheet Content */}
-      <div style={{ flex: 1, overflow: 'hidden' }}>
+      <div id={panelId} role="tabpanel" aria-label={activeSheet || 'Sheet'} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <div
           style={{
             transform: spreadsheetZoom !== 1 ? `scale(${spreadsheetZoom})` : undefined,
@@ -1211,119 +1154,26 @@ export function FormulaWorkbook({
         </div>
       </div>
 
-      {/* Sheet Tabs at Bottom (Excel-style) */}
-      <div className="rsp-sheet-tabs">
-        <div className="rsp-sheet-tabs-scroll">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            {sheetNames.map((sheetName) => {
-              const isRenaming = renamingSheet === sheetName;
-              const isActive = activeSheet === sheetName;
-
-              return (
-                <div key={sheetName}>
-                  {isRenaming ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <input
-                        className="rsp-sheet-tab-input"
-                        type="text"
-                        value={newSheetName}
-                        onChange={(e) => setNewSheetName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            renameSheet(sheetName, newSheetName);
-                          } else if (e.key === 'Escape') {
-                            cancelRenaming();
-                          }
-                        }}
-                        onBlur={() => {
-                          if (newSheetName.trim() && newSheetName.trim() !== sheetName) {
-                            renameSheet(sheetName, newSheetName);
-                          } else {
-                            cancelRenaming();
-                          }
-                        }}
-                        autoFocus
-                        data-testid={`rename-sheet-input-${sheetName}`}
-                      />
-                    </div>
-                  ) : (
-                    <div
-                      className={cn('rsp-sheet-tab', {
-                        'rsp-sheet-tab-active': isActive
-                      })}
-                      onClick={() => handleActiveSheetChange(sheetName)}
-                      onDoubleClick={() => startRenaming(sheetName)}
-                      data-testid={`sheet-tab-${sheetName}`}
-                    >
-                      <span>{sheetName}</span>
-
-                      {/* Sheet actions (visible on hover, inside tab) */}
-                      <div className="sheet-tab-actions">
-                        <button
-                          type="button"
-                          className="rsp-icon-button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startRenaming(sheetName);
-                          }}
-                          title="Rename Sheet"
-                          data-testid={`rename-sheet-${sheetName}`}
-                        >
-                          <Edit2Icon style={{ width: 12, height: 12 }} />
-                        </button>
-                        {sheetNames.length > 1 && (
-                          <button
-                            type="button"
-                            className="rsp-icon-button rsp-icon-button-delete"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (confirm(`Are you sure you want to delete sheet "${sheetName}"?`)) {
-                                deleteSheet(sheetName);
-                              }
-                            }}
-                            title="Delete Sheet"
-                            data-testid={`delete-sheet-${sheetName}`}
-                          >
-                            <Trash2Icon style={{ width: 12, height: 12 }} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Add Sheet Button (Excel-style, to the right) */}
-          <button
-            type="button"
-            className="rsp-add-sheet-button"
-            onClick={addSheet}
-            title="Add Sheet"
-            data-testid={`add-sheet-${workbookName}`}
-          >
-            <PlusIcon style={{ width: 12, height: 12 }} />
-          </button>
-        </div>
+      <SheetNavigation sheets={sheetNames} activeSheet={activeSheet} workbookName={workbookName} panelId={panelId}
+        onSelect={handleActiveSheetChange} onAdd={addSheet} onRename={renameSheet} onDelete={deleteSheet}>
 
         {/* Spreadsheet Zoom Controls - pinned to the right */}
         <div className="rsp-zoom-controls">
           <button
             type="button"
             className="rsp-icon-button"
-            onClick={() => setSpreadsheetZoom(Math.max(0.5, spreadsheetZoom - 0.1))}
+            onClick={() => setSpreadsheetZoom(Math.max(0.5, Math.round((spreadsheetZoom - 0.1) * 10) / 10))}
             disabled={spreadsheetZoom <= 0.5}
             title="Zoom Out"
             style={{ opacity: spreadsheetZoom <= 0.5 ? 0.5 : 1 }}
           >
             <MinusIcon style={{ width: 12, height: 12 }} />
           </button>
-          <span className="rsp-zoom-value">{Math.round(spreadsheetZoom * 100)}%</span>
+          <button type="button" className="rsp-zoom-value rsp-zoom-reset" aria-label={`Zoom ${Math.round(spreadsheetZoom * 100)}%. Reset to 100%`} title="Reset zoom to 100%" onClick={() => setSpreadsheetZoom(1)}>{Math.round(spreadsheetZoom * 100)}%</button>
           <button
             type="button"
             className="rsp-icon-button"
-            onClick={() => setSpreadsheetZoom(Math.min(2, spreadsheetZoom + 0.1))}
+            onClick={() => setSpreadsheetZoom(Math.min(2, Math.round((spreadsheetZoom + 0.1) * 10) / 10))}
             disabled={spreadsheetZoom >= 2}
             title="Zoom In"
             style={{ opacity: spreadsheetZoom >= 2 ? 0.5 : 1 }}
@@ -1331,7 +1181,7 @@ export function FormulaWorkbook({
             <PlusIcon style={{ width: 12, height: 12 }} />
           </button>
         </div>
-      </div>
+      </SheetNavigation>
     </div>
   );
 }

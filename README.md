@@ -100,7 +100,12 @@ export function Demo() {
 ```
 
 `FormulaWorkbook` adds Excel-style sheet tabs, renaming, deletion and zoom on
-top of `FormulaSheet`.
+top of `FormulaSheet`. Focus a sheet tab and use Left/Right or Home/End to switch
+sheets. F2, double-click, or the **Sheet actions** menu starts renaming; Save/Enter
+commits and Cancel/Escape discards. Blank/duplicate names and engine errors stay
+visible without losing the draft. Deletion asks for confirmation and is disabled
+for the last sheet. Add and sheet actions remain outside the scrolling tab strip;
+the zoom percentage resets zoom to 100% when clicked.
 
 ### Formula reference highlights
 

@@ -563,38 +563,6 @@
   color: var(--_rsp-text);
 }
 
-.rsp-sheet-tab.rsp-sheet-tab-active {
-  background: var(--_rsp-accent);
-  border-color: transparent;
-  color: var(--_rsp-accent-contrast);
-  font-weight: 600;
-}
-
-/* Icon buttons inside the active tab must read against the accent fill. */
-.rsp-sheet-tab.rsp-sheet-tab-active .rsp-icon-button {
-  color: var(--_rsp-accent-contrast);
-}
-
-.rsp-sheet-tab.rsp-sheet-tab-active .rsp-icon-button:hover {
-  background: rgba(255, 255, 255, 0.22);
-  color: var(--_rsp-accent-contrast);
-}
-
-/* Per-tab action buttons reveal on hover / when the tab is active. */
-.rsp-sheet-tab .sheet-tab-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity var(--_rsp-transition);
-}
-
-.rsp-sheet-tab:hover .sheet-tab-actions,
-.rsp-sheet-tab.rsp-sheet-tab-active .sheet-tab-actions,
-.rsp-sheet-tab:focus-within .sheet-tab-actions {
-  opacity: 1;
-}
-
 .rsp-sheet-tab-input {
   font: inherit;
   color: var(--_rsp-text);
@@ -676,6 +644,207 @@
   font-size: 11px;
   color: var(--_rsp-muted-text);
   font-variant-numeric: tabular-nums;
+}
+
+/* Sheet navigation stays outside the virtualized grid. */
+.rsp-sheet-navigation {
+  position: relative;
+  flex: none;
+  min-width: 0;
+}
+.rsp-workbook,
+.rsp-workbook-body {
+  min-width: 0;
+}
+.rsp-workbook-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rsp-sheet-tabs-scroll {
+  flex: 1;
+  min-width: 0;
+  padding: 3px;
+}
+.rsp-sheet-tab {
+  flex: none;
+  max-width: 180px;
+  min-height: 32px;
+  font-family: inherit;
+}
+.rsp-sheet-tab span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rsp-sheet-tab.rsp-sheet-tab-active {
+  background: var(--_rsp-bg);
+  color: var(--_rsp-text);
+  border-color: var(--_rsp-border);
+  box-shadow: inset 0 -2px var(--_rsp-accent);
+  font-weight: 600;
+}
+.rsp-sheet-navigation .rsp-icon-button {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  color: var(--_rsp-header-text);
+}
+.rsp-add-sheet-button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex: none;
+  border-style: solid;
+}
+.rsp-zoom-controls {
+  flex: none;
+  margin-inline-start: auto;
+  padding-inline-start: 6px;
+  border-inline-start: 1px solid var(--_rsp-border);
+}
+.rsp-zoom-reset {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  min-height: 32px;
+  color: var(--_rsp-header-text);
+}
+.rsp-sheet-navigation button:focus-visible {
+  outline: 2px solid var(--_rsp-accent);
+  outline-offset: -2px;
+}
+.rsp-sheet-rename {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--_rsp-border);
+  background: var(--_rsp-header-bg);
+  font-size: 12px;
+}
+.rsp-sheet-rename input {
+  flex: 1;
+  width: 120px;
+  min-width: 80px;
+  min-height: 32px;
+  box-sizing: border-box;
+  box-shadow: none;
+}
+.rsp-sheet-rename input:focus {
+  outline: 2px solid var(--_rsp-accent);
+  outline-offset: 1px;
+}
+.rsp-sheet-action {
+  border: 1px solid var(--_rsp-border);
+  border-radius: var(--_rsp-radius-sm);
+  padding: 6px 10px;
+  min-height: 32px;
+  background: var(--_rsp-bg);
+  color: var(--_rsp-text);
+  cursor: pointer;
+  font: inherit;
+}
+.rsp-sheet-action:hover {
+  background: var(--_rsp-hover-bg);
+}
+.rsp-sheet-error {
+  padding: 8px 10px;
+  color: var(--_rsp-danger);
+  background: var(--_rsp-bg);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.rsp-sheet-menu {
+  position: absolute;
+  inset-inline-end: 10px;
+  bottom: calc(100% + 4px);
+  z-index: 50;
+  width: 220px;
+  max-width: calc(100% - 20px);
+  padding: 4px;
+  box-sizing: border-box;
+  background: var(--_rsp-bg);
+  color: var(--_rsp-text);
+  border: 1px solid var(--_rsp-border);
+  border-radius: var(--_rsp-radius-sm);
+  font-size: 12px;
+}
+.rsp-sheet-menu button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  border-radius: var(--_rsp-radius-sm);
+  padding: 8px;
+  font: inherit;
+  text-align: start;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.rsp-sheet-menu button:hover,
+.rsp-sheet-menu button:focus-visible {
+  background: var(--_rsp-hover-bg);
+}
+.rsp-sheet-menu .rsp-sheet-delete {
+  color: var(--_rsp-danger);
+}
+.rsp-sheet-menu button[aria-disabled="true"] {
+  color: var(--_rsp-muted-text);
+  cursor: not-allowed;
+}
+.rsp-sheet-menu-name {
+  padding: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.rsp-sheet-menu-hint {
+  padding: 4px 8px 8px;
+  color: var(--_rsp-header-text);
+}
+.rsp-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+@media (pointer: coarse) {
+  .rsp-sheet-navigation button {
+    min-height: 44px;
+  }
+  .rsp-sheet-navigation .rsp-icon-button,
+  .rsp-add-sheet-button {
+    min-width: 44px;
+  }
+  .rsp-sheet-rename input {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .rsp-sheet-tabs {
+    flex-wrap: wrap;
+  }
+  .rsp-sheet-tabs-scroll {
+    flex-basis: calc(100% - 120px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rsp-sheet-navigation *,
+  .rsp-sheet-navigation *::before,
+  .rsp-sheet-navigation *::after {
+    transition: none;
+    animation: none;
+    scroll-behavior: auto;
+  }
 }
 
 /* Formula bar ------------------------------------------------------ */

@@ -12,12 +12,15 @@
         color: light-dark(#101828, #e8ecf4);
       }
       .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; }
-      .pane { border-radius: 12px; overflow: hidden; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15); }
+      .pane { min-width: 0; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15); }
       .pane h2 { margin: 0; padding: 10px 14px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
       .light { color-scheme: light; background: #fff; }
       .light h2 { background: #eef1f6; color: #475467; }
       .dark { color-scheme: dark; background: #0f1523; }
       .dark h2 { background: #1a2233; color: #99a4bb; }
+      .demo-help { margin: 0; padding: 10px 14px; font-size: 13px; line-height: 1.5; }
+      .light .demo-help { color: #475467; }
+      .dark .demo-help { color: #b8c2d6; }
       .stage { height: 460px; }
       @media (max-width: 900px) { .panes { grid-template-columns: 1fr; } }
     </style>

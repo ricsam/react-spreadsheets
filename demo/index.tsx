@@ -28,6 +28,7 @@ function buildEngine() {
   engine.addWorkbook(WORKBOOK);
   engine.addSheet({ workbookName: WORKBOOK, sheetName: "Model" });
   engine.addSheet({ workbookName: WORKBOOK, sheetName: "Inputs" });
+  engine.addSheet({ workbookName: WORKBOOK, sheetName: "Quarterly forecast assumptions" });
 
   engine.setSheetContent(
     { workbookName: WORKBOOK, sheetName: "Model" },
@@ -81,7 +82,8 @@ const engineDark = buildEngine();
 function Pane({ scheme, engine }: { scheme: "light" | "dark"; engine: FormulaEngine }) {
   return (
     <div className={`pane ${scheme}`}>
-      <h2>{scheme}</h2>
+      <h2>{scheme} theme</h2>
+      <p className="demo-help">Switch sheets with arrow keys. Press F2 or use the sheet actions menu to rename.</p>
       <div className="stage">
         <FormulaWorkbook engine={engine} workbookName={WORKBOOK} isSelected />
       </div>
