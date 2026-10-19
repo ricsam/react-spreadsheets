@@ -46,7 +46,7 @@ describe('FormulaSheet custom cell styles', () => {
 
   test('applies consumer styles to ordinary cells outside tables', async () => {
     const engine = FormulaEngine.buildEmpty();
-    engine.addWorkbook('Book');
+    engine.addWorkbook({ workbookName: 'Book' });
     engine.addSheet({ workbookName: 'Book', sheetName: 'Sheet1' });
     engine.setSheetContent(
       { workbookName: 'Book', sheetName: 'Sheet1' },
@@ -103,7 +103,7 @@ describe('FormulaSheet custom cell styles', () => {
 
   test('shares style reads and only renders changed selection cells; engine updates invalidate', async () => {
     const engine = FormulaEngine.buildEmpty();
-    engine.addWorkbook('Book');
+    engine.addWorkbook({ workbookName: 'Book' });
     const address = { workbookName: 'Book', sheetName: 'Sheet1' };
     engine.addSheet(address);
     engine.setSheetContent(address, new Map([['A1', 1]]));
@@ -182,7 +182,7 @@ describe('FormulaSheet custom cell styles', () => {
 
   test('repaints a programmatic range selection when the grid is already focused', async () => {
     const engine = FormulaEngine.buildEmpty();
-    engine.addWorkbook('Book');
+    engine.addWorkbook({ workbookName: 'Book' });
     engine.addSheet({ workbookName: 'Book', sheetName: 'Sheet1' });
     const workbookSelection = new WorkbookSelectionManager();
     let sheetSelection: SelectionManager | undefined;

@@ -25,7 +25,7 @@ const finiteRange = (startCol: number, startRow: number, endCol: number, endRow:
 
 function buildEngine() {
   const engine = FormulaEngine.buildEmpty();
-  engine.addWorkbook(WORKBOOK);
+  engine.addWorkbook({ workbookName: WORKBOOK });
   engine.addSheet({ workbookName: WORKBOOK, sheetName: "Model" });
   engine.addSheet({ workbookName: WORKBOOK, sheetName: "Inputs" });
   engine.addSheet({ workbookName: WORKBOOK, sheetName: "Quarterly forecast assumptions" });

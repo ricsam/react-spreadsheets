@@ -4,6 +4,7 @@ import type { SelectionManager } from '@ricsam/selection-manager';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Spreadsheet } from './spreadsheet';
+import { FormulaSheet } from '../workbook/workbook';
 
 class TestResizeObserver implements ResizeObserver {
   constructor(private readonly callback: ResizeObserverCallback) {}
@@ -42,7 +43,7 @@ describe('spreadsheet editing', () => {
     mock.restore();
   });
 
-  test('reopens a rejected inline edit with its draft so it can be corrected', async () => {
+  test.each(['legacy', 'formula'] as const)('%s reopens a rejected inline edit with its draft so it can be corrected', async (mode) => {
     globalThis.ResizeObserver = TestResizeObserver;
     container = document.createElement('div');
     document.body.append(container);
@@ -53,7 +54,7 @@ describe('spreadsheet editing', () => {
     const errors: unknown[] = [];
     const consoleError = spyOn(console, 'error').mockImplementation(() => {});
     const engine = FormulaEngine.buildEmpty();
-    engine.addWorkbook('Book');
+    engine.addWorkbook({ workbookName: 'Book' });
     engine.addSheet({ workbookName: 'Book', sheetName: 'Sheet1' });
     engine.setSheetContent(
       { workbookName: 'Book', sheetName: 'Sheet1' },
@@ -71,9 +72,13 @@ describe('spreadsheet editing', () => {
       numCols: 2
     });
 
+    const Component = mode === 'formula' ? FormulaSheet : Spreadsheet;
     await act(async () => {
       root?.render(
-        <Spreadsheet
+        <Component
+          engine={engine}
+          workbookName="Book"
+          sheetName="Sheet1"
           style={{ width: 400, height: 300 }}
           cellData={engine.getSheetSerialized({ workbookName: 'Book', sheetName: 'Sheet1' })}
           onCellDataChange={(data) => {
@@ -129,7 +134,7 @@ describe('spreadsheet editing', () => {
       retriedInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     });
 
-    expect(submittedValues).toEqual(['Name', 'Unique']);
+    if (mode === 'legacy') expect(submittedValues).toEqual(['Name', 'Unique']);
     expect(selectionManager.isEditingCell(0, 1)).toBe(false);
     expect(engine.getTable({ workbookName: 'Book', tableName: 'Data' })?.headers.get('Unique')).toEqual({
       name: 'Unique',

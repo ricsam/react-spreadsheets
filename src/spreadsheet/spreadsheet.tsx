@@ -758,6 +758,9 @@ export interface SpreadsheetProps {
   'aria-describedby'?: string;
   cellData?: Map<string, SerializedCellValue>;
   onCellDataChange?: (data: Map<string, SerializedCellValue>) => void;
+  /** Changed cells only; undefined deletes. Takes precedence over onCellDataChange.
+   * Controlled consumers must synchronously accept or throw to reject the patch. */
+  onCellDataPatch?: (patch: Map<string, SerializedCellValue>) => void;
   onCellDataChangeError?: (error: unknown) => void;
   /** Finite number of rows. Omit for an unbounded sheet. */
   rowCount?: number;
@@ -897,6 +900,7 @@ export const Spreadsheet = forwardRef<
       'aria-describedby': ariaDescribedBy,
       cellData: controlledCellData,
       onCellDataChange,
+      onCellDataPatch,
       onCellDataChangeError,
       rowCount,
       columnCount,
@@ -1205,6 +1209,7 @@ export const Spreadsheet = forwardRef<
 
     const effectsRefOb = {
       onCellDataChange,
+      onCellDataPatch,
       onCellDataChangeError,
       controlledCellData,
       parseValue,
@@ -1613,13 +1618,13 @@ export const Spreadsheet = forwardRef<
       return selectionManager.listenToUpdateData((updates) => {
         const editingState = selectionManager.isEditing;
         try {
-          const { cellData, onCellDataChange } = effectsRef.current;
-          const newData = new Map(cellData);
+          const { cellData, onCellDataChange, onCellDataPatch, controlledCellData } = effectsRef.current;
+          const patch = new Map<string, SerializedCellValue>();
           updates.forEach(({ value, rowIndex, colIndex }) => {
             const key = `${indexToColumn(colIndex)}${rowIndex + 1}`;
             const parseValue = effectsRef.current.parseValue;
             if (value === '') {
-              newData.delete(key);
+              patch.set(key, undefined);
             } else {
               // Apply parse function if provided, otherwise use value as-is
               let parsedValue: number | string = value;
@@ -1642,10 +1647,20 @@ export const Spreadsheet = forwardRef<
                   });
                 }
               }
-              newData.set(key, parsedValue);
+              patch.set(key, parsedValue);
             }
           });
-          onCellDataChange?.(newData);
+          if (onCellDataPatch) {
+            onCellDataPatch(patch);
+            // Controlled patch consumers own the new state; do not copy the sheet.
+            if (controlledCellData !== undefined) return;
+          }
+          const newData = new Map(cellData);
+          patch.forEach((value, key) => {
+            if (value === undefined) newData.delete(key);
+            else newData.set(key, value);
+          });
+          if (!onCellDataPatch) onCellDataChange?.(newData);
           setInternalCellData(newData);
         } catch (error) {
           console.error('Failed to update spreadsheet cell data:', error);

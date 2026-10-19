@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.15
+
+- Commit FormulaSheet inline edits, external pastes and clears as changed-cell patches in one engine transaction, avoiding full-sheet copies/coercion and preserving unrelated warm evaluation caches.
+- Add optional Spreadsheet `onCellDataPatch`; retain the legacy whole-map `onCellDataChange` path and rejected-editor draft restoration.
+- Cover dependency recalculation, cache retention, typed input, deletion, atomic bulk undo/redo, rollback and table-header validation with engine 0.3.7 (development dependency only; peers unchanged).
+- Include the previously committed workbook navigation and sheet-action usability improvements (2c8b593).
+
 ## 0.0.14
 
 - Stabilize FormulaSheet render callbacks so selection-only changes repaint affected cells rather than the entire visible grid.

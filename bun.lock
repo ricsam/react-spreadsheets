@@ -6,7 +6,7 @@
       "name": "@ricsam/react-spreadsheets",
       "devDependencies": {
         "@happy-dom/global-registrator": "^18.0.1",
-        "@ricsam/formula-engine": "^0.2.15",
+        "@ricsam/formula-engine": "0.3.7",
         "@ricsam/selection-manager": "^0.0.33",
         "@testing-library/react": "^16.3.0",
         "@types/bun": "latest",
@@ -36,7 +36,7 @@
 
     "@happy-dom/global-registrator": ["@happy-dom/global-registrator@18.0.1", "", { "dependencies": { "@types/node": "^20.0.0", "happy-dom": "^18.0.1" } }, "sha512-xCy/cpEP8xyJ6u0eokYgaQxeUmcKqHx/+aC3R0DLa7/S38efhZAVDQqLJ5zzTguLFS0gvAzZHP40NGaLwRyapQ=="],
 
-    "@ricsam/formula-engine": ["@ricsam/formula-engine@0.2.18", "", { "peerDependencies": { "typescript": "^5" } }, "sha512-2zoU5ZSnBbLqTB1hhR3gLmDyDg7FcshT/c3W74C+4JFcAyDAoKlXT5ToCPj9sHpytyfoQTSWbqrYmrn+u/p/9A=="],
+    "@ricsam/formula-engine": ["@ricsam/formula-engine@0.3.7", "", { "peerDependencies": { "typescript": "^5" } }, "sha512-1x4RXNiiy9Wh+aqoNv6Y4zlZ+gxENvEtoNIj7I6MV4lK0wSoQn1OMIRh9jes1dHhsXcfS6lLOBTZ0SM5i9Si4Q=="],
 
     "@ricsam/selection-manager": ["@ricsam/selection-manager@0.0.33", "", { "peerDependencies": { "typescript": "^5" } }, "sha512-vBbWhyMJtSoWzFX4wdcle56/87VOPs+JTyOJRKW+vjdlmlTnjAtjlxfN8JFK+kGo43+bh+SaMzsecawpK1PplA=="],
 

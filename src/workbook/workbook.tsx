@@ -425,25 +425,22 @@ export function FormulaSheet({
     [getEngineTableAt, selection?.navigation]
   );
 
-  // Handle cell data changes from the spreadsheet
-  const onCellDataChange = useCallback(
-    (updatedSpreadsheet: Map<string, SerializedCellValue>) => {
-      const data = new Map<string, SerializedCellValue>(updatedSpreadsheet);
-      data.forEach((value, key) => {
-        if (typeof value === 'string') {
+  // Commit only edited cells. A paste/clear is one atomic history entry, and
+  // unrelated evaluation nodes remain warm (setSheetContent resets them).
+  const onCellDataPatch = useCallback(
+    (patch: Map<string, SerializedCellValue>) => {
+      engine.transact(() => {
+        patch.forEach((value, key) => {
           const { colIndex, rowIndex } = parseCellReference(key);
-          const coercedValue = coerceCellInput(
-            value,
-            engine.getCellDataType({ workbookName, sheetName, colIndex, rowIndex })
+          const address = { workbookName, sheetName, colIndex, rowIndex };
+          engine.setCellContent(
+            address,
+            typeof value === 'string'
+              ? coerceCellInput(value, engine.getCellDataType(address))
+              : value
           );
-          if (coercedValue === undefined) {
-            data.delete(key);
-          } else {
-            data.set(key, coercedValue);
-          }
-        }
+        });
       });
-      engine.setSheetContent({ sheetName, workbookName }, data);
     },
     [sheetName, engine, workbookName]
   );
@@ -861,7 +858,7 @@ export function FormulaSheet({
           disableClipboard={true}
           style={{ height: '100%', width: '100%' }}
           cellData={sheet?.content}
-          onCellDataChange={onCellDataChange}
+          onCellDataPatch={onCellDataPatch}
           onCellDataChangeError={onCellDataChangeError}
           {...rest}
           // Add overlay props
