@@ -1,6 +1,6 @@
 {
   "name": "@ricsam/react-spreadsheets",
-  "version": "0.0.15",
+  "version": "0.0.16",
   "description": "Headless-friendly React spreadsheet and workbook components: infinite virtualized grid, zoom, resizing, clipboard, fill handles and formula-engine bindings.",
   "type": "module",
   "module": "./dist/mjs/lib.mjs",
@@ -42,8 +42,8 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@ricsam/formula-engine": ">=0.2.0",
-    "@ricsam/selection-manager": ">=0.0.32",
+    "@ricsam/formula-engine": ">=0.6.0",
+    "@ricsam/selection-manager": ">=0.0.36",
     "react": "^18 || ^19",
     "react-dom": "^18 || ^19"
   },
@@ -54,8 +54,8 @@
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^18.0.1",
-    "@ricsam/formula-engine": "0.3.7",
-    "@ricsam/selection-manager": "^0.0.33",
+    "@ricsam/formula-engine": "0.6.0",
+    "@ricsam/selection-manager": "^0.0.36",
     "@testing-library/react": "^16.3.0",
     "@types/bun": "latest",
     "@types/react": "^19",

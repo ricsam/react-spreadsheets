@@ -31,6 +31,7 @@ export {
   FormulaWorkbook,
   WorkbookClipboardManager,
   WorkbookSelectionManager,
+  splitVisibleRows,
   type FormulaSheetProps,
   type FormulaWorkbookProps,
 } from "./workbook/workbook";
@@ -39,6 +40,15 @@ export type {
   WorkbookRangeFocusOptions,
   WorkbookSelectionContext,
 } from "./workbook/workbook-selection-manager";
+
+// Table sort & filter UI (FormulaSheet renders these in table header cells)
+export {
+  TableFilterButton,
+  TableFilterMenu,
+  getTableHeaderFilterState,
+  type TableFilterMenuProps,
+  type TableHeaderFilterState,
+} from "./workbook/table-filter-menu";
 
 export {
   coerceCellInput,

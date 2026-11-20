@@ -5,6 +5,7 @@ import {
   type SerializedCellValue,
   type SpreadsheetRange,
   type SpreadsheetRangeEnd,
+  type TableDefinition,
   indexToColumn,
   parseCellReference,
   getCellReference,
@@ -32,6 +33,48 @@ import { type CellDataUpdate, ClipboardUtils } from '../clipboard/clipboard-mana
 import { normalizeBorderSides, hasAnyBorderSide } from './border-sides';
 import { coerceCellInput, getCellDisplayText, getCellDisplayValue } from './cell-data-type';
 import { queueCellEditError } from './cell-edit-error';
+import {
+  TableFilterButton,
+  TableFilterMenu,
+  getTableHeaderFilterState
+} from './table-filter-menu';
+
+const EMPTY_ROWS: ReadonlySet<number> = new Set();
+
+const rowSetsEqual = (left: ReadonlySet<number>, right: ReadonlySet<number>): boolean => {
+  if (left.size !== right.size) return false;
+  for (const row of left) if (!right.has(row)) return false;
+  return true;
+};
+
+/** Keeps the previous set while its rows are unchanged, so layouts stay memoized. */
+function useStableRowSet(rows: ReadonlySet<number>): ReadonlySet<number> {
+  const ref = useRef(rows);
+  if (ref.current !== rows && !rowSetsEqual(ref.current, rows)) ref.current = rows;
+  return ref.current;
+}
+
+/** Splits an area into its runs of rows that are not hidden. */
+export const splitVisibleRows = (
+  range: SpreadsheetRange,
+  hiddenRows: ReadonlySet<number>
+): SpreadsheetRange[] => {
+  if (hiddenRows.size === 0 || range.end.row.type !== 'number') return [range];
+  const runs: SpreadsheetRange[] = [];
+  let runStart: number | undefined;
+  for (let row = range.start.row; row <= range.end.row.value + 1; row++) {
+    const visible = row <= range.end.row.value && !hiddenRows.has(row);
+    if (visible && runStart === undefined) runStart = row;
+    if (!visible && runStart !== undefined) {
+      runs.push({
+        start: { row: runStart, col: range.start.col },
+        end: { row: { type: 'number', value: row - 1 }, col: range.end.col }
+      });
+      runStart = undefined;
+    }
+  }
+  return runs;
+};
 
 const getWrapCellStyle = (style?: CellStyle): React.CSSProperties =>
   style?.wrapText
@@ -222,6 +265,12 @@ export interface FormulaSheetProps
   toolbar?: React.ReactNode;
   /** When true, cells display raw formulas instead of computed values */
   showFormulas?: boolean;
+  /**
+   * Show a sort and filter button in every table header cell (Excel's
+   * AutoFilter buttons). Defaults to true. Rows hidden by table filters are
+   * hidden either way.
+   */
+  tableFilterButtons?: boolean;
 }
 
 function useEngine(engine: FormulaEngine): ReturnType<typeof FormulaEngine.prototype.getState> {
@@ -243,6 +292,13 @@ export class WorkbookClipboardManager extends ClipboardUtils {
     super();
   }
   copiedCells: CellAddress[] = [];
+  /**
+   * The sheet rows of the copy in clipboard order. Rows hidden by a filter
+   * were left out, so consecutive entries can skip rows.
+   */
+  copiedRows: number[] = [];
+  /** The copied selection's top-left cell. */
+  copiedOrigin: { rowIndex: number; colIndex: number } = { rowIndex: 0, colIndex: 0 };
   signature: string = '';
   isCut: boolean = false;
 
@@ -264,6 +320,11 @@ export class WorkbookClipboardManager extends ClipboardUtils {
     const valueExportGrid = this.createExportGrid(width, height);
     const formulaExportGrid = this.createExportGrid(width, height);
     this.copiedCells = [];
+    this.copiedRows = extractedCells.rows;
+    this.copiedOrigin = {
+      rowIndex: extractedCells.origin.rowIndex,
+      colIndex: extractedCells.origin.columnIndex
+    };
     this.isCut = context.cut ?? false;
     cells.forEach(({ relative, absolute }) => {
       const cellAddress: CellAddress = {
@@ -289,7 +350,10 @@ export class WorkbookClipboardManager extends ClipboardUtils {
     rawString: string;
     pasteType: 'value' | 'formula';
   }): void {
-    if (context.rawString === this.signature) {
+    if (context.rawString === this.signature && this.hasHiddenRowGaps()) {
+      this.pasteVisibleRows(context);
+      this.isCut = false;
+    } else if (context.rawString === this.signature) {
       // Internal paste operation - use smartPaste to handle both copy and fill
       const selections = context.selectionManager.selections;
       if (!selections || selections.length === 0) return;
@@ -338,6 +402,62 @@ export class WorkbookClipboardManager extends ClipboardUtils {
       context.selectionManager.saveCellValues(context.updates);
     }
   }
+
+  /** Whether the copy skipped hidden (filtered) rows. */
+  protected hasHiddenRowGaps(): boolean {
+    return this.copiedRows.some(
+      (row, index) => index > 0 && row !== this.copiedRows[index - 1]! + 1
+    );
+  }
+
+  /**
+   * Pastes a copy taken from a filtered range: the visible rows land one after
+   * another, as the clipboard text has them, so nothing lands in the gaps.
+   */
+  protected pasteVisibleRows(context: {
+    workbookName: string;
+    sheetName: string;
+    selectionManager: SelectionManager;
+    pasteType: 'value' | 'formula';
+  }): void {
+    const runs: { first: number; last: number; offset: number }[] = [];
+    this.copiedRows.forEach((row, offset) => {
+      const run = runs[runs.length - 1];
+      if (run && row === run.last + 1) run.last = row;
+      else runs.push({ first: row, last: row, offset });
+    });
+    const targets = context.selectionManager.selections.map((area) => ({
+      row: Math.min(area.start.row, area.end.row.type === 'number' ? area.end.row.value : area.start.row),
+      col: Math.min(area.start.col, area.end.col.type === 'number' ? area.end.col.value : area.start.col)
+    }));
+    this.engine.transact(() => {
+      for (const target of targets) {
+        for (const run of runs) {
+          const cells = this.copiedCells.filter(
+            (cell) => cell.rowIndex >= run.first && cell.rowIndex <= run.last
+          );
+          if (cells.length === 0) continue;
+          // pasteCells offsets every cell from the first one in reading order.
+          const first = cells.reduce((best, cell) =>
+            cell.rowIndex < best.rowIndex ||
+            (cell.rowIndex === best.rowIndex && cell.colIndex < best.colIndex)
+              ? cell
+              : best
+          );
+          this.engine.pasteCells(
+            cells,
+            {
+              workbookName: context.workbookName,
+              sheetName: context.sheetName,
+              rowIndex: target.row + run.offset + (first.rowIndex - run.first),
+              colIndex: target.col + (first.colIndex - this.copiedOrigin.colIndex)
+            },
+            { cut: this.isCut, type: context.pasteType, include: 'all' }
+          );
+        }
+      }
+    });
+  }
 }
 
 export function FormulaSheet({
@@ -362,6 +482,8 @@ export function FormulaSheet({
   isSelected = false,
   toolbar,
   showFormulas = false,
+  hiddenRows: consumerHiddenRows,
+  tableFilterButtons = true,
   ...rest
 }: FormulaSheetProps) {
   const schemeRoot = useSchemeRoot();
@@ -375,6 +497,47 @@ export function FormulaSheet({
   const state = useEngine(engine);
 
   const sheet = state.workbooks.get(workbookName)?.sheets.get(sheetName);
+
+  // Rows hidden by the filters of this sheet's tables (plus any the consumer
+  // hides). A new set is only produced when the rows actually change.
+  const hiddenRows = useStableRowSet(
+    useMemo(() => {
+      const filtered = engine.getHiddenRows({ workbookName, sheetName });
+      if (!consumerHiddenRows || consumerHiddenRows.size === 0) {
+        return filtered.size === 0 ? EMPTY_ROWS : filtered;
+      }
+      return new Set([...filtered, ...consumerHiddenRows]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [engine, state, workbookName, sheetName, consumerHiddenRows])
+  );
+  const hiddenRowsRef = useRef(hiddenRows);
+  hiddenRowsRef.current = hiddenRows;
+
+  // Sort & filter menu of a table header cell.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const gridSelectionManagerRef = useRef<SelectionManager | null>(null);
+  const [filterMenu, setFilterMenu] = useState<{
+    tableName: string;
+    column: number;
+    address: string;
+    anchor: HTMLElement;
+  } | null>(null);
+  const openFilterMenu = useCallback(
+    (table: TableDefinition, column: number, address: string, anchor: HTMLElement) => {
+      setFilterMenu((current) =>
+        current?.address === address ? null : { tableName: table.name, column, address, anchor }
+      );
+    },
+    []
+  );
+  const closeFilterMenu = useCallback((restoreGridFocus: boolean) => {
+    setFilterMenu(null);
+    if (restoreGridFocus) gridSelectionManagerRef.current?.focus();
+  }, []);
+  const filterMenuTable = filterMenu
+    ? engine.getTable({ workbookName, tableName: filterMenu.tableName })
+    : undefined;
+  const filterMenuAddress = filterMenu?.address;
 
   const getEngineTableAt = useCallback(
     (cell: SMCell): SMTable | undefined => {
@@ -505,18 +668,29 @@ export function FormulaSheet({
           });
         }),
         spreadsheetSelectionManager.listenToFill((ev) => {
+          // Like Excel, a fill or clear over a filtered range only touches the
+          // rows that are shown.
           if (ev.type === 'extend') {
+            const fillRanges = splitVisibleRows(
+              convertSmAreaToSpreadsheetRange(ev.fillRange),
+              hiddenRowsRef.current
+            );
+            if (fillRanges.length === 0) return;
             engine.autoFill(
               { sheetName, workbookName },
               convertSmAreaToSpreadsheetRange(ev.seedRange),
-              [convertSmAreaToSpreadsheetRange(ev.fillRange)],
+              fillRanges,
               ev.direction
             );
           } else {
-            engine.clearSpreadsheetRange({
-              sheetName,
-              workbookName,
-              range: convertSmAreaToSpreadsheetRange(ev.rangeToClear)
+            const ranges = splitVisibleRows(
+              convertSmAreaToSpreadsheetRange(ev.rangeToClear),
+              hiddenRowsRef.current
+            );
+            engine.transact(() => {
+              for (const range of ranges) {
+                engine.clearSpreadsheetRange({ sheetName, workbookName, range });
+              }
             });
           }
         }),
@@ -569,6 +743,32 @@ export function FormulaSheet({
       document.addEventListener('keydown', handleUndoRedoKeyDown);
       cleanups.push(() => {
         document.removeEventListener('keydown', handleUndoRedoKeyDown);
+      });
+
+      // Alt+Down on a table header cell opens its sort & filter menu (Excel
+      // and Sheets). Captured before the grid moves the selection down.
+      gridSelectionManagerRef.current = spreadsheetSelectionManager;
+      const handleFilterMenuKeyDown = (event: KeyboardEvent) => {
+        if (!event.altKey || event.key !== 'ArrowDown' || event.ctrlKey || event.metaKey) return;
+        if (!spreadsheetSelectionManager.hasFocus) return;
+        if (spreadsheetSelectionManager.isEditing.type !== 'none') return;
+        const cell = spreadsheetSelectionManager.getTopLeftCellInSelection();
+        if (!cell) return;
+        const address = getCellReference({ rowIndex: cell.row, colIndex: cell.col });
+        const button = bodyRef.current?.querySelector<HTMLButtonElement>(
+          `[data-rsp-filter-button="${address}"]`
+        );
+        if (!button) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        button.click();
+      };
+      window.addEventListener('keydown', handleFilterMenuKeyDown, true);
+      cleanups.push(() => {
+        window.removeEventListener('keydown', handleFilterMenuKeyDown, true);
+        if (gridSelectionManagerRef.current === spreadsheetSelectionManager) {
+          gridSelectionManagerRef.current = null;
+        }
       });
 
       // Register this spreadsheet's SelectionManager with the WorkbookSelectionManager
@@ -826,6 +1026,33 @@ export function FormulaSheet({
           );
         }
 
+        if (tableFilterButtons) {
+          const table = engine.isCellInTable({
+            sheetName,
+            workbookName,
+            colIndex: cell.colIndex,
+            rowIndex: cell.rowIndex
+          });
+          if (table && cell.rowIndex === table.start.rowIndex) {
+            const column = cell.colIndex - table.start.colIndex;
+            const columnName =
+              Array.from(table.headers.values()).find((header) => header.index === column)?.name ??
+              String(value ?? '');
+            defaultElement = (
+              <div className="rsp-table-header-cell">
+                <div className="rsp-table-header-label">{defaultElement}</div>
+                <TableFilterButton
+                  address={cellRef}
+                  columnName={columnName}
+                  state={getTableHeaderFilterState(table, column)}
+                  expanded={filterMenuAddress === cellRef}
+                  onOpen={(button) => openFilterMenu(table, column, cellRef, button)}
+                />
+              </div>
+            );
+          }
+        }
+
         if (customCellRenderer) {
           return customCellRenderer(cell, defaultElement);
         }
@@ -833,7 +1060,7 @@ export function FormulaSheet({
       }
     };
   }, [engine, state, workbookName, sheetName, sheet, showFormulas, verboseErrors,
-      customCellStyle, customCellRenderer]);
+      customCellStyle, customCellRenderer, tableFilterButtons, filterMenuAddress, openFilterMenu]);
 
   // If the sheet doesn't exist (e.g. during a rename where the engine has
   // updated but React hasn't re-rendered with the new sheet name yet),
@@ -853,7 +1080,7 @@ export function FormulaSheet({
       {toolbar}
 
       {/* Main spreadsheet area */}
-      <div className="rsp-workbook-body">
+      <div className="rsp-workbook-body" ref={bodyRef}>
         <Spreadsheet
           disableClipboard={true}
           style={{ height: '100%', width: '100%' }}
@@ -861,6 +1088,7 @@ export function FormulaSheet({
           onCellDataPatch={onCellDataPatch}
           onCellDataChangeError={onCellDataChangeError}
           {...rest}
+          hiddenRows={hiddenRows}
           // Add overlay props
           components={components}
           overlayChildren={overlayChildren}
@@ -883,6 +1111,18 @@ export function FormulaSheet({
           }
           {...renderCallbacks}
         />
+        {filterMenu && filterMenuTable && bodyRef.current && (
+          <TableFilterMenu
+            key={filterMenu.address}
+            engine={engine}
+            table={filterMenuTable}
+            column={filterMenu.column}
+            anchor={filterMenu.anchor}
+            container={bodyRef.current}
+            onClose={closeFilterMenu}
+            onError={onCellDataChangeError}
+          />
+        )}
       </div>
     </div>
   );

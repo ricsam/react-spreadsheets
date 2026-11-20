@@ -44,7 +44,8 @@ const getColumnWidthByIndex = (colIndex: number, columnWidths: Map<string, numbe
 
 const getRowHeightByIndex = (rowIndex: number, rowHeights: Map<number, number>): number => {
   const height = rowHeights.get(rowIndex + 1);
-  return typeof height === 'number' && Number.isFinite(height) && height > 0 ? height : DEFAULT_CELL_HEIGHT;
+  // 0 is a hidden row (see the grid's `hiddenRows`); user sizes are positive.
+  return typeof height === 'number' && Number.isFinite(height) && height >= 0 ? height : DEFAULT_CELL_HEIGHT;
 };
 
 export const getColumnEdgePosition = (edgeIndex: number, columnWidths: Map<string, number>): number => {
