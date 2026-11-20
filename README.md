@@ -20,7 +20,9 @@ bun add @ricsam/react-spreadsheets @ricsam/selection-manager
 bun add @ricsam/formula-engine
 ```
 
-`react`, `react-dom` and `@ricsam/selection-manager` are peer dependencies.
+`react`, `react-dom` and `@ricsam/selection-manager` (0.0.36 or later) are peer
+dependencies; the formula-aware components need `@ricsam/formula-engine` 0.6 or
+later.
 
 ## Formula rendering and imported defaults
 
@@ -263,6 +265,48 @@ Finite ranges may be supplied in either direction and are clamped to finite grid
 bounds. An open-ended axis reaches the final row or column of a finite grid; on
 an unbounded grid its finite start is used as the reveal anchor.
 
+### Table sort and filter
+
+`FormulaSheet` puts a sort and filter button in every header cell of a
+formula-engine table, like Excel's AutoFilter buttons (`tableFilterButtons={false}`
+turns them off). The button, or Alt+↓ on a header cell, opens a menu with:
+
+- sort ascending or descending ("A to Z", or "smallest to largest" for numbers),
+- a condition (equals, greater than, begins with, contains, …),
+- the column's distinct values with their counts, a search box, (Select all) and
+  (Blanks). The list only offers values in rows the other columns' filters show.
+
+Every choice is one engine call (`sortTable` or `setTableColumnFilter`), so it is
+one undo step, is saved with the engine's state and reaches every view of the
+table. Sorting moves the rows in the engine, with their formulas, styles and data
+types; filtering hides rows. Nothing in the grid remaps coordinates: the rows a
+table's filters hide come from `engine.getHiddenRows(...)` and are laid out at
+zero height, and the row header after a gap gets `.rsp-header-after-hidden`.
+Over hidden rows:
+
+- arrow keys and Cmd/Ctrl+Arrow step over them;
+- a copy takes only the shown rows, and pasting it lands them one after another
+  (`WorkbookClipboardManager.copiedRows` lists the rows a copy holds);
+- Delete, fill-handle fills and fill-handle clears change only shown rows
+  (`splitVisibleRows` splits a range into its runs of shown rows);
+- selections still span them, and `=SUM(Table[Column])` still counts them, as in
+  Excel.
+
+Filters re-apply when they change, after a sort and when the table is resized,
+but not after each edit: an edited row stays visible until
+`engine.reapplyTableFilters(...)`, Excel's Reapply.
+
+`Spreadsheet` takes the same `hiddenRows` (0-based rows) to hide rows for any
+other reason; `FormulaSheet` adds them to the rows its tables hide. Pass a new
+`Set` when the rows change.
+
+```tsx
+<Spreadsheet cellData={cells} hiddenRows={new Set([4, 5, 9])} />
+```
+
+`TableFilterButton`, `TableFilterMenu` and `getTableHeaderFilterState` are
+exported for custom header renderers.
+
 ## Theming
 
 All colors, fonts and sizes are CSS custom properties. The package only ever
@@ -354,6 +398,7 @@ Per-cell styling is done in JS:
 | `onCellDataChange` | Called with the next map after an edit, paste or fill. |
 | `rowCount` / `columnCount` | Finite grid dimensions. Omit either dimension for an unbounded axis. |
 | `columnWidths` / `rowHeights` | Controlled sizing, keyed by column letter / 1-based row. |
+| `hiddenRows` | 0-based rows laid out at zero height. Navigation, copies and clears skip them; addresses and selections are unchanged. |
 | `customCellStyle` | Per-cell `CSSProperties`. |
 | `customCellRenderer` | Per-cell React node. |
 | `parseValue` | Coerce raw editor strings (e.g. text → number) before storing. |

@@ -11,6 +11,13 @@ export type CellDataUpdate = {
 export interface ExtractedCells {
   width: number;
   height: number;
+  /** The selection's top-left cell. */
+  origin: { rowIndex: number; columnIndex: number };
+  /**
+   * The sheet row of each relative row, in order. Hidden (filtered) rows are
+   * left out, so this has `height` entries and may skip rows.
+   */
+  rows: number[];
   cells: {
     relative: { rowIndex: number; columnIndex: number };
     absolute: { rowIndex: number; columnIndex: number };
@@ -29,7 +36,9 @@ export interface ExtractedCells {
 export class ClipboardUtils {
   /**
    * Flattens the current selection into a rectangular block plus per-cell
-   * coordinates relative to the top-left of that block.
+   * coordinates relative to the top-left of that block. Rows the selection
+   * manager reports as hidden are left out and the rows below move up, the way
+   * copying a filtered range in Excel copies only what is shown.
    */
   extractCellsFromSelection(
     selectionManager: SelectionManager,
@@ -38,6 +47,7 @@ export class ClipboardUtils {
     const state = selectionManager.getState();
     const selection = state.selections[state.selections.length - 1];
     if (!selection) return undefined;
+    const isRowHidden = (row: number) => selectionManager.isRowHidden(row);
 
     // `end` edges are tagged unions and may be infinite. An infinite edge has
     // no meaningful clipboard extent, so clamp it to the furthest populated
@@ -67,6 +77,7 @@ export class ClipboardUtils {
       if (rowIndex < startRow || columnIndex < startCol) return;
       if (finiteEndRow !== undefined && rowIndex > finiteEndRow) return;
       if (finiteEndCol !== undefined && columnIndex > finiteEndCol) return;
+      if (isRowHidden(rowIndex)) return;
 
       endRow = Math.max(endRow, rowIndex);
       endCol = Math.max(endCol, columnIndex);
@@ -85,9 +96,26 @@ export class ClipboardUtils {
     if (finiteEndRow !== undefined) endRow = finiteEndRow;
     if (finiteEndCol !== undefined) endCol = finiteEndCol;
 
+    const rows: number[] = [];
+    if (selectionManager.getHiddenRows().size === 0) {
+      for (let row = startRow; row <= endRow; row++) rows.push(row);
+    } else {
+      const relativeRow = new Map<number, number>();
+      for (let row = startRow; row <= endRow; row++) {
+        if (isRowHidden(row)) continue;
+        relativeRow.set(row, rows.length);
+        rows.push(row);
+      }
+      for (const cell of cells) {
+        cell.relative.rowIndex = relativeRow.get(cell.absolute.rowIndex)!;
+      }
+    }
+
     return {
       width: endCol - startCol + 1,
-      height: endRow - startRow + 1,
+      height: rows.length,
+      origin: { rowIndex: startRow, columnIndex: startCol },
+      rows,
       cells,
     };
   }

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.16
+
+- Sort and filter formula-engine tables from the grid: `FormulaSheet` renders a sort and filter button in each table header cell (opt out with `tableFilterButtons={false}`; Alt+Down opens it from the keyboard). The menu sorts ascending or descending, filters by a condition or by a searchable list of the column's values with counts and (Blanks), and clears the column's filter. Each choice is one engine call (`sortTable` / `setTableColumnFilter`), so one undo step.
+- Add `Spreadsheet` `hiddenRows`: rows laid out at zero height, without headers or cells, with the next row header marked `rsp-header-after-hidden`. They are passed to the selection manager, so navigation and Cmd/Ctrl+Arrow jumps step over them, and copies leave them out (`ExtractedCells.rows` and `origin` describe the copy). `FormulaSheet` derives them from `engine.getHiddenRows`, plus any `hiddenRows` it is given.
+- Over filtered rows, `FormulaSheet` fills and clears only the shown rows (`splitVisibleRows`), and `WorkbookClipboardManager` pastes a copy of filtered rows as consecutive rows (`copiedRows`, `copiedOrigin`).
+- Export `TableFilterButton`, `TableFilterMenu`, `getTableHeaderFilterState` and `splitVisibleRows`.
+- Peers: `@ricsam/formula-engine` >=0.6.0 (table sort and filter APIs) and `@ricsam/selection-manager` >=0.0.36 (hidden rows).
+
 ## 0.0.15
 
 - Commit FormulaSheet inline edits, external pastes and clears as changed-cell patches in one engine transaction, avoiding full-sheet copies/coercion and preserving unrelated warm evaluation caches.

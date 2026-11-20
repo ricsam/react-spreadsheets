@@ -184,6 +184,28 @@ const normalizeScrollRangeAxis = (
 
 const hasCellData = (value: SerializedCellValue): boolean => value !== undefined && value !== '';
 
+const EMPTY_HIDDEN_ROWS: ReadonlySet<number> = new Set();
+
+/**
+ * The row heights used for layout (1-based keys): the user's sizes, with every
+ * hidden row at zero height. User maps never contain 0, so a 0 always means
+ * hidden.
+ */
+const withHiddenRows = (
+  rowHeights: Map<number, number>,
+  hiddenRows: ReadonlySet<number>
+): Map<number, number> => {
+  if (hiddenRows.size === 0) return rowHeights;
+  const layout = new Map(rowHeights);
+  hiddenRows.forEach((rowIndex) => {
+    if (Number.isInteger(rowIndex) && rowIndex >= 0) layout.set(rowIndex + 1, 0);
+  });
+  return layout;
+};
+
+const layoutRowHeight = (layout: Map<number, number>, rowNumber: number): number =>
+  layout.get(rowNumber) ?? DEFAULT_CELL_HEIGHT;
+
 const getSparseUsedRange = (
   cellData: Map<string, SerializedCellValue>,
   rowCount?: number,
@@ -237,7 +259,8 @@ const getSparseUsedRange = (
  */
 const resolveSparseNavigationTarget = (
   request: NavigationRequest,
-  cellData: Map<string, SerializedCellValue>
+  cellData: Map<string, SerializedCellValue>,
+  hiddenRows: ReadonlySet<number>
 ): SMCell | undefined => {
   if (request.kind !== 'jump' || request.table) return undefined;
 
@@ -257,6 +280,8 @@ const resolveSparseNavigationTarget = (
     } catch {
       continue;
     }
+    // Hidden (filtered) rows are skipped by jumps, as in Excel.
+    if (isVertical && hiddenRows.has(rowIndex)) continue;
 
     if ((isVertical ? columnIndex : rowIndex) === fixedAxis) {
       occupied.add(isVertical ? rowIndex : columnIndex);
@@ -264,12 +289,18 @@ const resolveSparseNavigationTarget = (
   }
 
   const step = movingForward ? 1 : -1;
+  // Adjacency looks past hidden rows: the next visible row is the neighbour.
+  const next = (axis: number) => {
+    let candidate = axis + step;
+    while (isVertical && candidate >= 0 && hiddenRows.has(candidate)) candidate += step;
+    return candidate;
+  };
   let targetAxis: number | undefined;
 
   // When the adjacent cell contains data, jump to the end of that contiguous run.
-  if (occupied.has(originAxis + step)) {
-    targetAxis = originAxis + step;
-    while (occupied.has(targetAxis + step)) targetAxis += step;
+  if (occupied.has(next(originAxis))) {
+    targetAxis = next(originAxis);
+    while (occupied.has(next(targetAxis))) targetAxis = next(targetAxis);
   } else {
     // Otherwise jump across the blank region to the next populated cell.
     const candidates = [...occupied].filter((index) =>
@@ -455,7 +486,8 @@ const HeaderComponent = React.memo(
     handleColumnResizeStart,
     handleColumnResizeDoubleClick,
     handleRowResizeStart,
-    handleRowResizeDoubleClick
+    handleRowResizeDoubleClick,
+    afterHiddenRows = false
   }: {
     index: number;
     type: 'row' | 'col';
@@ -467,6 +499,8 @@ const HeaderComponent = React.memo(
     handleColumnResizeDoubleClick: (e: React.MouseEvent, col: string) => void;
     handleRowResizeStart: (e: React.MouseEvent, row: number) => void;
     handleRowResizeDoubleClick: (e: React.MouseEvent, row: number) => void;
+    /** A row header directly below hidden rows. */
+    afterHiddenRows?: boolean;
   }) => {
     const headerRef = useCallback(
       (el: HTMLElement | null) => {
@@ -540,7 +574,8 @@ const HeaderComponent = React.memo(
         aria-rowindex={type === 'row' ? index + 2 : 1}
         aria-selected={isSelected}
         className={cn('rsp-header', `rsp-header-${type}`, {
-          'rsp-header-selected': isSelected
+          'rsp-header-selected': isSelected,
+          'rsp-header-after-hidden': afterHiddenRows
         })}
         data-testid={`spreadsheet-${type}-header-${type === 'col' ? indexToColumn(index) : index + 1}`}
         style={{
@@ -770,6 +805,12 @@ export interface SpreadsheetProps {
   onColumnWidthsChange?: (columnWidths: SpreadsheetColumnWidths) => void;
   rowHeights?: SpreadsheetRowHeights;
   onRowHeightsChange?: (rowHeights: SpreadsheetRowHeights) => void;
+  /**
+   * 0-based rows that exist but are not shown, such as rows a table filter
+   * hides. They are laid out with zero height, skipped by keyboard navigation
+   * and left out of copies; addresses and selections are unchanged.
+   */
+  hiddenRows?: ReadonlySet<number>;
   customCellStyle?: (cell: CellRenderContext) => React.CSSProperties;
   customCellRenderer?: (cell: CellRenderContext) => React.ReactNode;
   /**
@@ -908,6 +949,7 @@ export const Spreadsheet = forwardRef<
       onColumnWidthsChange,
       rowHeights: controlledRowHeights,
       onRowHeightsChange,
+      hiddenRows,
       customCellStyle,
       customCellRenderer,
       parseValue,
@@ -952,6 +994,9 @@ export const Spreadsheet = forwardRef<
     const finiteColumnCount = normalizeFiniteCount(columnCount);
     const gridCountsRef = useRef({ rows: finiteRowCount, columns: finiteColumnCount });
     gridCountsRef.current = { rows: finiteRowCount, columns: finiteColumnCount };
+    const hiddenRowSet = hiddenRows ?? EMPTY_HIDDEN_ROWS;
+    const hiddenRowsRef = useRef(hiddenRowSet);
+    hiddenRowsRef.current = hiddenRowSet;
 
     const getNumRows = useCallback(
       () => countToSelectionBound(gridCountsRef.current.rows),
@@ -972,7 +1017,7 @@ export const Spreadsheet = forwardRef<
     );
     const defaultResolveTarget = useCallback(
       (request: NavigationRequest) =>
-        resolveSparseNavigationTarget(request, cellDataRef.current),
+        resolveSparseNavigationTarget(request, cellDataRef.current, hiddenRowsRef.current),
       []
     );
     const consumerNavigation = selection?.navigation;
@@ -996,6 +1041,7 @@ export const Spreadsheet = forwardRef<
       containerElement: containerDivRef,
       formats: selection?.formats,
       navigation,
+      hiddenRows: hiddenRowSet,
       disableAutoClipboard: true
     });
 
@@ -1070,6 +1116,12 @@ export const Spreadsheet = forwardRef<
     const rowHeights = transientRowHeights ?? controlledRowHeightsMap ?? internalRowHeights;
     const rowHeightsRef = useRef(rowHeights);
     rowHeightsRef.current = rowHeights;
+    // Everything that positions rows reads this map; resizing still edits the
+    // user's sizes in `rowHeights`.
+    const layoutRowHeights = useMemo(
+      () => withHiddenRows(rowHeights, hiddenRowSet),
+      [rowHeights, hiddenRowSet]
+    );
     const previousControlledRowHeightsRef = useRef(controlledRowHeights);
     useEffect(() => {
       if (controlledRowHeights !== previousControlledRowHeightsRef.current) {
@@ -1300,7 +1352,7 @@ export const Spreadsheet = forwardRef<
         y < viewport.scrollY + gridDims.headerHeight &&
         (finiteRowCount === undefined || rowNum <= finiteRowCount)
       ) {
-        const rowHeight = (rowHeights.get(rowNum) || DEFAULT_CELL_HEIGHT) * viewport.zoom;
+        const rowHeight = layoutRowHeight(layoutRowHeights, rowNum) * viewport.zoom;
         if (y + rowHeight > viewport.scrollY + gridDims.headerHeight) {
           break;
         }
@@ -1320,7 +1372,7 @@ export const Spreadsheet = forwardRef<
           ctx.lineTo(width, drawY);
           ctx.stroke();
         }
-        const rowHeight = (rowHeights.get(rowNum) || DEFAULT_CELL_HEIGHT) * viewport.zoom;
+        const rowHeight = layoutRowHeight(layoutRowHeights, rowNum) * viewport.zoom;
         y += rowHeight;
         rowNum++;
       }
@@ -1331,7 +1383,7 @@ export const Spreadsheet = forwardRef<
       gridDims.headerHeight,
       gridDims.headerWidth,
       height,
-      rowHeights,
+      layoutRowHeights,
       setupCanvas,
       viewport.scrollX,
       viewport.scrollY,
@@ -1368,7 +1420,7 @@ export const Spreadsheet = forwardRef<
         y < viewport.scrollY &&
         (finiteRowCount === undefined || startRow < finiteRowCount)
       ) {
-        const rowHeight = (rowHeights.get(startRow + 1) || DEFAULT_CELL_HEIGHT) * viewport.zoom;
+        const rowHeight = layoutRowHeight(layoutRowHeights, startRow + 1) * viewport.zoom;
         if (y + rowHeight > viewport.scrollY) {
           break;
         }
@@ -1385,7 +1437,9 @@ export const Spreadsheet = forwardRef<
       ) {
         let colX = x;
         let col = startCol;
+        // A hidden row has no height and renders no cells.
         while (
+          !hiddenRowSet.has(row) &&
           colX < viewport.scrollX + width &&
           (finiteColumnCount === undefined || col < finiteColumnCount)
         ) {
@@ -1401,7 +1455,7 @@ export const Spreadsheet = forwardRef<
           colX += colWidth;
           col++;
         }
-        const rowHeight = (rowHeights.get(row + 1) || DEFAULT_CELL_HEIGHT) * viewport.zoom;
+        const rowHeight = layoutRowHeight(layoutRowHeights, row + 1) * viewport.zoom;
         rowY += rowHeight;
         row++;
       }
@@ -1413,7 +1467,8 @@ export const Spreadsheet = forwardRef<
       finiteColumnCount,
       finiteRowCount,
       height,
-      rowHeights,
+      hiddenRowSet,
+      layoutRowHeights,
       viewport.scrollX,
       viewport.scrollY,
       viewport.zoom,
@@ -1431,9 +1486,9 @@ export const Spreadsheet = forwardRef<
     // Get row height (considering custom sizes)
     const getRowHeight = useCallback(
       (row: number) => {
-        return rowHeights.get(row) || DEFAULT_CELL_HEIGHT;
+        return layoutRowHeight(layoutRowHeights, row);
       },
-      [rowHeights]
+      [layoutRowHeights]
     );
 
     // Convert cell coordinates to base pixel coordinates (without scroll offset, for container transform)
@@ -1452,12 +1507,12 @@ export const Spreadsheet = forwardRef<
         // Calculate y position considering custom row heights
         let y = HEADER_HEIGHT;
         for (let i = 1; i <= rowIndex; i++) {
-          y += rowHeights.get(i) || DEFAULT_CELL_HEIGHT;
+          y += layoutRowHeight(layoutRowHeights, i);
         }
 
         return { x, y };
       },
-      [columnWidths, rowHeights]
+      [columnWidths, layoutRowHeights]
     );
 
     const clampViewportOffsets = useCallback(
@@ -1476,7 +1531,7 @@ export const Spreadsheet = forwardRef<
             ? Infinity
             : Math.max(
                 0,
-                getRowEdgePosition(finiteRowCount, rowHeights) * zoom - bodyHeight
+                getRowEdgePosition(finiteRowCount, layoutRowHeights) * zoom - bodyHeight
               );
 
         return {
@@ -1484,7 +1539,7 @@ export const Spreadsheet = forwardRef<
           scrollY: Math.min(Math.max(0, scrollY), maxScrollY)
         };
       },
-      [columnWidths, finiteColumnCount, finiteRowCount, height, rowHeights, width]
+      [columnWidths, finiteColumnCount, finiteRowCount, height, layoutRowHeights, width]
     );
 
     const revealRange = useCallback(
@@ -1505,8 +1560,8 @@ export const Spreadsheet = forwardRef<
           const bodyHeight = Math.max(0, height - HEADER_HEIGHT * previous.zoom);
           const left = getColumnEdgePosition(columns.start, columnWidths) * previous.zoom;
           const right = getColumnEdgePosition(columns.end + 1, columnWidths) * previous.zoom;
-          const top = getRowEdgePosition(rows.start, rowHeights) * previous.zoom;
-          const bottom = getRowEdgePosition(rows.end + 1, rowHeights) * previous.zoom;
+          const top = getRowEdgePosition(rows.start, layoutRowHeights) * previous.zoom;
+          const bottom = getRowEdgePosition(rows.end + 1, layoutRowHeights) * previous.zoom;
           const desired = clampViewportOffsets(
             alignScrollOffset(
               previous.scrollX,
@@ -1540,7 +1595,7 @@ export const Spreadsheet = forwardRef<
         finiteColumnCount,
         finiteRowCount,
         height,
-        rowHeights,
+        layoutRowHeights,
         width
       ]
     );
@@ -2419,7 +2474,7 @@ export const Spreadsheet = forwardRef<
     const getVisibleRowHeaders = useCallback(() => {
       if (!height) return [];
 
-      const headers: { row: number; rowIndex: number }[] = [];
+      const headers: { row: number; rowIndex: number; afterHiddenRows: boolean }[] = [];
       let y = 0;
       let rowNum = 1;
 
@@ -2436,22 +2491,26 @@ export const Spreadsheet = forwardRef<
         rowNum++;
       }
 
-      // Collect visible rows
+      // Collect visible rows. Hidden rows get no header; the next shown row is
+      // marked so the gap in the row numbers is visible, like Excel's.
       while (
         y < viewport.scrollY + height &&
         (finiteRowCount === undefined || rowNum <= finiteRowCount)
       ) {
         const rowHeight = getRowHeight(rowNum) * viewport.zoom;
-        headers.push({
-          row: rowNum,
-          rowIndex: rowNum - 1
-        });
+        if (!hiddenRowSet.has(rowNum - 1)) {
+          headers.push({
+            row: rowNum,
+            rowIndex: rowNum - 1,
+            afterHiddenRows: hiddenRowSet.has(rowNum - 2)
+          });
+        }
         y += rowHeight;
         rowNum++;
       }
 
       return headers;
-    }, [finiteRowCount, height, viewport, getRowHeight]);
+    }, [finiteRowCount, height, viewport, getRowHeight, hiddenRowSet]);
 
     // Get visible overlays with culling and persistent tracking
     const { visibleOverlays, overlaysToRender } = useMemo(() => {
@@ -2593,7 +2652,7 @@ export const Spreadsheet = forwardRef<
           endRow: endRow + 1
         },
         columnWidths,
-        rowHeights
+        layoutRowHeights
       );
 
       return {
@@ -2607,7 +2666,7 @@ export const Spreadsheet = forwardRef<
       finiteColumnCount,
       finiteRowCount,
       referenceSelection,
-      rowHeights,
+      layoutRowHeights,
       visibleCells
     ]);
 
@@ -2755,7 +2814,7 @@ export const Spreadsheet = forwardRef<
                     transformOrigin: '0 0'
                   }}
                 >
-                  {visibleRowHeaders.map(({ row, rowIndex }) => {
+                  {visibleRowHeaders.map(({ row, rowIndex, afterHiddenRows }) => {
                     return (
                       <div
                         key={row}
@@ -2769,6 +2828,7 @@ export const Spreadsheet = forwardRef<
                       <HeaderComponent
                         index={rowIndex}
                         type="row"
+                        afterHiddenRows={afterHiddenRows}
                         selectionManager={selectionManager}
                         getColumnWidth={getColumnWidth}
                         getRowHeight={getRowHeight}
